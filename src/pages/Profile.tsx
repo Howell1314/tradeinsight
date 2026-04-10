@@ -2,8 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import { useAuthStore } from '../store/useAuthStore'
 import { useTradeStore } from '../store/useTradeStore'
 import { formatCurrency, generateId } from '../utils/calculations'
-import { Camera, Save, LogOut, User, Phone, FileText, Mail, Shield, Plus, Trash2, DollarSign, AlertTriangle, Download } from 'lucide-react'
+import { getRegistrationOpen, setRegistrationOpen } from '../lib/supabase'
+import { Camera, Save, LogOut, User, Phone, FileText, Mail, Shield, Plus, Trash2, DollarSign, AlertTriangle, Download, Users } from 'lucide-react'
 import type { AccountTransaction } from '../types/trade'
+
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL as string | undefined
 
 export default function Profile() {
   const { user, profile, updateProfile, uploadAvatar, signOut, loading } = useAuthStore()
@@ -63,6 +66,30 @@ export default function Profile() {
 
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [showDeleteZone, setShowDeleteZone] = useState(false)
+
+  // Admin: registration toggle
+  const isAdmin = !!ADMIN_EMAIL && user?.email === ADMIN_EMAIL
+  const [regOpen, setRegOpen] = useState<boolean | null>(null)
+  const [regSaving, setRegSaving] = useState(false)
+  const [regMsg, setRegMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isAdmin) getRegistrationOpen().then(setRegOpen)
+  }, [isAdmin])
+
+  const toggleRegistration = async (open: boolean) => {
+    setRegSaving(true)
+    setRegMsg(null)
+    const err = await setRegistrationOpen(open)
+    setRegSaving(false)
+    if (err) {
+      setRegMsg('保存失败：' + err)
+    } else {
+      setRegOpen(open)
+      setRegMsg(open ? '注册已开放' : '注册已关闭')
+      setTimeout(() => setRegMsg(null), 3000)
+    }
+  }
 
   useEffect(() => {
     if (profile) {
@@ -213,6 +240,54 @@ export default function Profile() {
           <div style={{ marginTop: 12, fontSize: 13, color: '#8892a4' }}>上传中...</div>
         )}
       </div>
+
+      {/* Admin: Registration Control */}
+      {isAdmin && (
+        <div style={{ background: '#1a1d27', border: '1px solid #2d3148', borderTop: '2px solid #8b5cf6', borderRadius: 12, padding: 24, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: '#8b5cf620', border: '1px solid #8b5cf640', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Users size={18} color="#a78bfa" />
+              </div>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0' }}>注册开关</div>
+                <div style={{ fontSize: 12, color: '#8892a4', marginTop: 2 }}>
+                  {regOpen === null ? '加载中...' : regOpen ? '当前：开放注册，新用户可自行注册' : '当前：注册已关闭，新用户无法注册'}
+                </div>
+              </div>
+            </div>
+
+            {/* Toggle switch */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {regMsg && (
+                <span style={{ fontSize: 12, color: regMsg.startsWith('保存失败') ? '#f87171' : '#4ade80' }}>
+                  {regMsg}
+                </span>
+              )}
+              <button
+                disabled={regSaving || regOpen === null}
+                onClick={() => toggleRegistration(!regOpen)}
+                style={{
+                  position: 'relative', width: 52, height: 28, borderRadius: 14,
+                  border: 'none', cursor: regSaving ? 'default' : 'pointer',
+                  background: regOpen ? '#22c55e' : '#4a5268',
+                  transition: 'background 0.2s',
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3,
+                  left: regOpen ? 27 : 3,
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: '#fff',
+                  transition: 'left 0.2s',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                }} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Capital Management */}
       <div style={{ background: '#1a1d27', border: '1px solid #2d3148', borderTop: '2px solid #f59e0b', borderRadius: 12, padding: 24, marginBottom: 16 }}>

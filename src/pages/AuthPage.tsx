@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuthStore } from '../store/useAuthStore'
+import { getRegistrationOpen } from '../lib/supabase'
 import { Mail, Lock, Eye, EyeOff, TrendingUp } from 'lucide-react'
 
 function genCaptcha() {
@@ -11,6 +12,11 @@ function genCaptcha() {
 export default function AuthPage() {
   const { signIn, signUp, loading } = useAuthStore()
   const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    getRegistrationOpen().then(setRegistrationOpen)
+  }, [])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -100,21 +106,45 @@ export default function AuthPage() {
             display: 'flex', background: '#22263a',
             borderRadius: 10, padding: 4, marginBottom: 24,
           }}>
-            {(['login', 'register'] as const).map((m) => (
-              <button key={m} onClick={() => switchMode(m)}
-                style={{
-                  flex: 1, padding: '8px', borderRadius: 8, border: 'none',
-                  cursor: 'pointer', fontSize: 14, fontWeight: mode === m ? 600 : 400,
-                  background: mode === m ? '#1a1d27' : 'transparent',
-                  color: mode === m ? '#e2e8f0' : '#8892a4',
-                  transition: 'all 0.15s',
-                }}>
-                {m === 'login' ? '登录' : '注册'}
-              </button>
-            ))}
+            <button onClick={() => switchMode('login')}
+              style={{
+                flex: 1, padding: '8px', borderRadius: 8, border: 'none',
+                cursor: 'pointer', fontSize: 14, fontWeight: mode === 'login' ? 600 : 400,
+                background: mode === 'login' ? '#1a1d27' : 'transparent',
+                color: mode === 'login' ? '#e2e8f0' : '#8892a4',
+                transition: 'all 0.15s',
+              }}>
+              登录
+            </button>
+            <button
+              onClick={() => registrationOpen !== false && switchMode('register')}
+              title={registrationOpen === false ? '管理员已关闭注册' : undefined}
+              style={{
+                flex: 1, padding: '8px', borderRadius: 8, border: 'none',
+                cursor: registrationOpen === false ? 'not-allowed' : 'pointer',
+                fontSize: 14, fontWeight: mode === 'register' ? 600 : 400,
+                background: mode === 'register' ? '#1a1d27' : 'transparent',
+                color: registrationOpen === false ? '#4a5268' : mode === 'register' ? '#e2e8f0' : '#8892a4',
+                transition: 'all 0.15s',
+                opacity: registrationOpen === false ? 0.5 : 1,
+              }}>
+              注册{registrationOpen === false ? '（已关闭）' : ''}
+            </button>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Registration closed notice */}
+          {registrationOpen === false && mode === 'register' && (
+            <div style={{
+              background: '#f59e0b15', border: '1px solid #f59e0b40',
+              borderLeft: '3px solid #f59e0b',
+              borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+              fontSize: 13, color: '#fbbf24',
+            }}>
+              管理员已暂停开放注册，如需账号请联系管理员。
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14, opacity: (registrationOpen === false && mode === 'register') ? 0.4 : 1, pointerEvents: (registrationOpen === false && mode === 'register') ? 'none' : undefined }}>
             {/* Email */}
             <div style={{ position: 'relative' }}>
               <Mail size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#4a5268' }} />

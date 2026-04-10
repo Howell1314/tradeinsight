@@ -21,6 +21,27 @@ export async function uploadJournalImage(userId: string, file: File): Promise<st
   return data.publicUrl
 }
 
+export async function getRegistrationOpen(): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'registration_open')
+      .single()
+    if (data == null) return true
+    return data.value as boolean
+  } catch {
+    return true // fail-open: if table doesn't exist yet, allow registration
+  }
+}
+
+export async function setRegistrationOpen(open: boolean): Promise<string | null> {
+  const { error } = await supabase
+    .from('app_settings')
+    .upsert({ key: 'registration_open', value: open, updated_at: new Date().toISOString() })
+  return error?.message ?? null
+}
+
 export interface Profile {
   id: string
   nickname: string
