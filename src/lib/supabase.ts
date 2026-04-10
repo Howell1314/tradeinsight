@@ -38,7 +38,8 @@ export async function getRegistrationOpen(): Promise<boolean> {
 export async function setRegistrationOpen(open: boolean): Promise<string | null> {
   const { error } = await supabase
     .from('app_settings')
-    .upsert({ key: 'registration_open', value: open, updated_at: new Date().toISOString() })
+    .update({ value: open, updated_at: new Date().toISOString() })
+    .eq('key', 'registration_open')
   return error?.message ?? null
 }
 
