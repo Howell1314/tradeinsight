@@ -54,8 +54,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [newAccountBroker, setNewAccountBroker] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const notifRef = useRef<HTMLDivElement>(null)
   const notifications = useNotifications()
+  const visibleNotifications = notifications.filter(n => !dismissedIds.has(n.id))
+
+  const dismissNotif = (id: string) => setDismissedIds(prev => new Set([...prev, id]))
+  const dismissAll = () => setDismissedIds(new Set(notifications.map(n => n.id)))
 
   // Close notification panel when clicking outside
   useEffect(() => {
@@ -321,14 +326,14 @@ export default function Layout({ children }: { children: ReactNode }) {
           }}>
             <div style={{ position: 'relative' }}>
               <Bell size={16} />
-              {notifications.length > 0 && (
+              {visibleNotifications.length > 0 && (
                 <span style={{
                   position: 'absolute', top: -5, right: -6,
                   width: 14, height: 14, borderRadius: '50%',
-                  background: notifications.some(n => n.type === 'warning') ? '#ef4444' : '#f59e0b',
+                  background: visibleNotifications.some(n => n.type === 'warning') ? '#ef4444' : '#f59e0b',
                   fontSize: 9, fontWeight: 700, color: '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>{notifications.length}</span>
+                }}>{visibleNotifications.length}</span>
               )}
             </div>
             <span style={{ fontSize: 13 }}>通知</span>
@@ -342,21 +347,32 @@ export default function Layout({ children }: { children: ReactNode }) {
               borderRadius: 12, padding: '8px 0', boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
               zIndex: 200, maxHeight: 320, overflowY: 'auto',
             }}>
-              <div style={{ padding: '6px 14px 10px', borderBottom: '1px solid #2d3148', fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
-                通知中心
+              <div style={{ padding: '6px 14px 10px', borderBottom: '1px solid #2d3148', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>通知中心</span>
+                {visibleNotifications.length > 0 && (
+                  <button onClick={dismissAll} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#4a5268', padding: '2px 0' }}>
+                    清除全部
+                  </button>
+                )}
               </div>
-              {notifications.length === 0 ? (
+              {visibleNotifications.length === 0 ? (
                 <div style={{ padding: '20px 14px', color: '#4a5268', fontSize: 13, textAlign: 'center' }}>暂无通知</div>
-              ) : notifications.map((n) => (
+              ) : visibleNotifications.map((n) => (
                 <div key={n.id} style={{
                   padding: '10px 14px',
                   borderBottom: '1px solid #1a1d27',
                   borderLeft: `3px solid ${n.type === 'warning' ? '#ef4444' : n.type === 'success' ? '#22c55e' : '#3b82f6'}`,
+                  display: 'flex', alignItems: 'flex-start', gap: 8,
                 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: n.type === 'warning' ? '#f87171' : n.type === 'success' ? '#4ade80' : '#60a5fa', marginBottom: 3 }}>
-                    {n.title}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: n.type === 'warning' ? '#f87171' : n.type === 'success' ? '#4ade80' : '#60a5fa', marginBottom: 3 }}>
+                      {n.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#8892a4', lineHeight: 1.5 }}>{n.message}</div>
                   </div>
-                  <div style={{ fontSize: 12, color: '#8892a4', lineHeight: 1.5 }}>{n.message}</div>
+                  <button onClick={() => dismissNotif(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2, flexShrink: 0, marginTop: 1 }}>
+                    <X size={13} />
+                  </button>
                 </div>
               ))}
             </div>
@@ -435,14 +451,14 @@ export default function Layout({ children }: { children: ReactNode }) {
               background: 'none', border: 'none', cursor: 'pointer', color: '#8892a4', padding: 4, position: 'relative',
             }}>
               <Bell size={20} />
-              {notifications.length > 0 && (
+              {visibleNotifications.length > 0 && (
                 <span style={{
                   position: 'absolute', top: 0, right: 0,
                   width: 14, height: 14, borderRadius: '50%',
-                  background: notifications.some(n => n.type === 'warning') ? '#ef4444' : '#f59e0b',
+                  background: visibleNotifications.some(n => n.type === 'warning') ? '#ef4444' : '#f59e0b',
                   fontSize: 9, fontWeight: 700, color: '#fff',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>{notifications.length}</span>
+                }}>{visibleNotifications.length}</span>
               )}
             </button>
           </div>
@@ -458,17 +474,28 @@ export default function Layout({ children }: { children: ReactNode }) {
           }}>
             <div style={{ padding: '8px 16px 10px', borderBottom: '1px solid #2d3148', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>通知中心</span>
-              <button onClick={() => setShowNotifications(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8892a4', padding: 2 }}><X size={16} /></button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {visibleNotifications.length > 0 && (
+                  <button onClick={dismissAll} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#4a5268', padding: 0 }}>清除全部</button>
+                )}
+                <button onClick={() => setShowNotifications(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8892a4', padding: 2 }}><X size={16} /></button>
+              </div>
             </div>
-            {notifications.length === 0 ? (
+            {visibleNotifications.length === 0 ? (
               <div style={{ padding: '20px', color: '#4a5268', fontSize: 13, textAlign: 'center' }}>暂无通知</div>
-            ) : notifications.map((n) => (
+            ) : visibleNotifications.map((n) => (
               <div key={n.id} style={{
                 padding: '10px 16px', borderBottom: '1px solid #1a1d27',
                 borderLeft: `3px solid ${n.type === 'warning' ? '#ef4444' : n.type === 'success' ? '#22c55e' : '#3b82f6'}`,
+                display: 'flex', alignItems: 'flex-start', gap: 8,
               }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: n.type === 'warning' ? '#f87171' : n.type === 'success' ? '#4ade80' : '#60a5fa', marginBottom: 2 }}>{n.title}</div>
-                <div style={{ fontSize: 12, color: '#8892a4' }}>{n.message}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: n.type === 'warning' ? '#f87171' : n.type === 'success' ? '#4ade80' : '#60a5fa', marginBottom: 2 }}>{n.title}</div>
+                  <div style={{ fontSize: 12, color: '#8892a4' }}>{n.message}</div>
+                </div>
+                <button onClick={() => dismissNotif(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2, flexShrink: 0, marginTop: 1 }}>
+                  <X size={13} />
+                </button>
               </div>
             ))}
           </div>
