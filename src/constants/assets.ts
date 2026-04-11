@@ -1,6 +1,4 @@
-import type { AssetClass } from '../types/trade'
-
-export const ASSET_COLORS: Record<AssetClass, string> = {
+export const ASSET_COLORS: Record<string, string> = {
   crypto: '#f59e0b',
   equity: '#3b82f6',
   option: '#8b5cf6',
@@ -9,7 +7,7 @@ export const ASSET_COLORS: Record<AssetClass, string> = {
   futures: '#f97316',
 }
 
-export const ASSET_LABELS: Record<AssetClass, string> = {
+export const ASSET_LABELS: Record<string, string> = {
   crypto: '数字货币',
   equity: '美股个股',
   option: '期权',

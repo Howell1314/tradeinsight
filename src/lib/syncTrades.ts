@@ -7,6 +7,7 @@ export interface JournalEntryDB {
   id: string; user_id?: string; date: string; summary: string
   went_well: string; improve: string; plan: string; pnl: number
   emotion: string; tags: string[]; images: string[]; review: string
+  updated_at?: string
 }
 
 export async function loadCloudJournal(userId: string): Promise<JournalEntryDB[] | null> {
