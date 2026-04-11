@@ -12,16 +12,7 @@ import {
   formatCurrency, formatPercent, formatNumber,
 } from '../utils/calculations'
 import { TrendingUp, Award, Target, AlertTriangle, Zap, BarChart2, Clock, LineChart as LineChartIcon, Percent } from 'lucide-react'
-
-const ASSET_COLORS: Record<string, string> = {
-  crypto: '#f59e0b', equity: '#3b82f6', option: '#8b5cf6',
-  etf: '#22c55e', cfd: '#ec4899', futures: '#f97316',
-}
-
-const ASSET_LABELS: Record<string, string> = {
-  crypto: '数字货币', equity: '美股个股', option: '期权',
-  etf: 'ETF', cfd: 'CFD', futures: '期货',
-}
+import { ASSET_COLORS, ASSET_LABELS } from '../constants/assets'
 
 export default function Dashboard() {
   const { closedTrades, openPositions, stats, accounts, accountTransactions, riskRules } = useTradeStore()

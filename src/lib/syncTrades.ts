@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
-import type { Trade, Account } from '../types/trade'
+import type { Trade, Account, AccountTransaction } from '../types/trade'
+import type { RiskRules } from '../store/useTradeStore'
 
 // ---- Journal entries ----
 export interface JournalEntryDB {
@@ -62,4 +63,46 @@ export async function upsertAccounts(userId: string, accounts: Account[]): Promi
 
 export async function deleteCloudAccount(userId: string, accountId: string): Promise<void> {
   await supabase.from('user_accounts').delete().eq('id', accountId).eq('user_id', userId)
+}
+
+// ---- Account Transactions ----
+
+export async function loadAccountTransactions(userId: string): Promise<AccountTransaction[] | null> {
+  const { data, error } = await supabase
+    .from('account_transactions')
+    .select('*')
+    .eq('user_id', userId)
+  if (error) return null
+  return (data ?? []) as AccountTransaction[]
+}
+
+export async function upsertAccountTransactions(userId: string, txs: AccountTransaction[]): Promise<void> {
+  if (!txs.length) return
+  await supabase.from('account_transactions').upsert(
+    txs.map((t) => ({ ...t, user_id: userId }))
+  )
+}
+
+export async function deleteCloudAccountTransaction(userId: string, id: string): Promise<void> {
+  await supabase.from('account_transactions').delete().eq('id', id).eq('user_id', userId)
+}
+
+// ---- Risk Rules ----
+
+export async function loadRiskRules(userId: string): Promise<RiskRules | null> {
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select('risk_rules')
+    .eq('user_id', userId)
+    .single()
+  if (error || !data) return null
+  return data.risk_rules as RiskRules
+}
+
+export async function upsertRiskRules(userId: string, rules: RiskRules): Promise<void> {
+  await supabase.from('user_settings').upsert({
+    user_id: userId,
+    risk_rules: rules,
+    updated_at: new Date().toISOString(),
+  })
 }

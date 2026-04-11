@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTradeStore } from '../store/useTradeStore'
+import { useJournalStore } from '../store/useJournalStore'
 import type { ClosedTrade } from '../types/trade'
 import TradeCalendar from '../components/TradeCalendar'
 import {
@@ -13,16 +14,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, LineChart, Line, Brush,
 } from 'recharts'
 import { X } from 'lucide-react'
-
-const ASSET_COLORS: Record<string, string> = {
-  crypto: '#f59e0b', equity: '#3b82f6', option: '#8b5cf6',
-  etf: '#22c55e', cfd: '#ec4899', futures: '#f97316',
-}
-
-const ASSET_LABELS: Record<string, string> = {
-  crypto: '数字货币', equity: '美股个股', option: '期权',
-  etf: 'ETF', cfd: 'CFD', futures: '期货',
-}
+import { ASSET_COLORS, ASSET_LABELS } from '../constants/assets'
 
 const EMOTION_COLORS: Record<string, string> = {
   '冷静': '#22c55e', '自信': '#3b82f6', '犹豫': '#eab308', '冲动': '#ef4444',
@@ -35,6 +27,7 @@ type Tab = 'overview' | 'symbols' | 'time' | 'risk' | 'strategy'
 
 export default function Analytics() {
   const { closedTrades } = useTradeStore()
+  const { entries: journalEntries } = useJournalStore()
   const [tab, setTab] = useState<Tab>('overview')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
@@ -63,41 +56,33 @@ export default function Analytics() {
     [...new Set(closedTrades.flatMap(t => t.strategy_tags.length > 0 ? t.strategy_tags : ['（无标签）']))],
     [closedTrades])
 
-  // Mistake tag cost analysis: read journal from localStorage, join with closedTrades by date
+  // Mistake tag cost analysis: read journal from store, join with closedTrades by date
   const mistakeCostData = useMemo(() => {
-    try {
-      const raw = localStorage.getItem('tradeinsight-journal')
-      const entries: Array<{ date: string; tags: string[] }> = JSON.parse(raw || '[]')
-      if (!Array.isArray(entries)) return []
-
-      // Build a map: date → mistake tags
-      const dateTagMap: Record<string, string[]> = {}
-      for (const e of entries) {
-        if (e.date && Array.isArray(e.tags) && e.tags.length > 0) {
-          dateTagMap[e.date] = e.tags
-        }
+    // Build a map: date → mistake tags
+    const dateTagMap: Record<string, string[]> = {}
+    for (const e of journalEntries) {
+      if (e.date && Array.isArray(e.tags) && e.tags.length > 0) {
+        dateTagMap[e.date] = e.tags
       }
-
-      // Aggregate loss by mistake tag using closedTrades
-      const tagLoss: Record<string, { loss: number; count: number }> = {}
-      for (const t of closedTrades as ClosedTrade[]) {
-        const date = t.closed_at.slice(0, 10)
-        const tags = dateTagMap[date]
-        if (!tags) continue
-        for (const tag of tags) {
-          if (!tagLoss[tag]) tagLoss[tag] = { loss: 0, count: 0 }
-          tagLoss[tag].loss += t.net_pnl  // keep sign — negative = loss
-          tagLoss[tag].count++
-        }
-      }
-
-      return Object.entries(tagLoss)
-        .map(([tag, { loss, count }]) => ({ tag, loss, count }))
-        .sort((a, b) => a.loss - b.loss)  // worst first
-    } catch {
-      return []
     }
-  }, [closedTrades])
+
+    // Aggregate loss by mistake tag using closedTrades
+    const tagLoss: Record<string, { loss: number; count: number }> = {}
+    for (const t of closedTrades as ClosedTrade[]) {
+      const date = t.closed_at.slice(0, 10)
+      const tags = dateTagMap[date]
+      if (!tags) continue
+      for (const tag of tags) {
+        if (!tagLoss[tag]) tagLoss[tag] = { loss: 0, count: 0 }
+        tagLoss[tag].loss += t.net_pnl  // keep sign — negative = loss
+        tagLoss[tag].count++
+      }
+    }
+
+    return Object.entries(tagLoss)
+      .map(([tag, { loss, count }]) => ({ tag, loss, count }))
+      .sort((a, b) => a.loss - b.loss)  // worst first
+  }, [closedTrades, journalEntries])
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview', label: '综合分析' },

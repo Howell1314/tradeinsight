@@ -1,67 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTradeStore } from '../store/useTradeStore'
 import { useAuthStore } from '../store/useAuthStore'
+import { useJournalStore } from '../store/useJournalStore'
+import type { JournalEntry } from '../store/useJournalStore'
 import { formatCurrency } from '../utils/calculations'
 import { uploadJournalImage } from '../lib/supabase'
-import { loadCloudJournal, upsertJournalEntry, deleteJournalEntry } from '../lib/syncTrades'
 import { Plus, X, BookOpen, ImageIcon, Loader, Edit3, Save, ChevronLeft, Search, Filter } from 'lucide-react'
 import { useIsMobile } from '../hooks/useIsMobile'
-
-interface JournalEntry {
-  id: string
-  date: string
-  summary: string
-  went_well: string
-  improve: string
-  plan: string
-  pnl: number
-  emotion: string
-  tags: string[]
-  images?: string[]
-  review?: string
-}
-
-const JOURNAL_KEY = 'tradeinsight-journal'
-const ALLOWED_EMOTIONS = ['冷静', '自信', '犹豫', '冲动']
-
-function isValidEntry(e: unknown): e is JournalEntry {
-  if (!e || typeof e !== 'object') return false
-  const entry = e as Record<string, unknown>
-  return (
-    typeof entry.id === 'string' && entry.id.length <= 64 &&
-    typeof entry.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) &&
-    typeof entry.summary === 'string' && entry.summary.length <= 5000 &&
-    typeof entry.went_well === 'string' && entry.went_well.length <= 5000 &&
-    typeof entry.improve === 'string' && entry.improve.length <= 5000 &&
-    typeof entry.plan === 'string' && entry.plan.length <= 5000 &&
-    typeof entry.pnl === 'number' && isFinite(entry.pnl) &&
-    typeof entry.emotion === 'string' && ALLOWED_EMOTIONS.includes(entry.emotion) &&
-    Array.isArray(entry.tags) && entry.tags.every((t) => typeof t === 'string' && t.length <= 50) &&
-    (!entry.images || (Array.isArray(entry.images) && entry.images.length <= 10 &&
-      entry.images.every((url: unknown) => typeof url === 'string' && url.length <= 600))) &&
-    (!entry.review || (typeof entry.review === 'string' && entry.review.length <= 10000))
-  )
-}
-
-function loadEntries(): JournalEntry[] {
-  try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(JOURNAL_KEY) : null
-    const parsed = JSON.parse(raw || '[]')
-    return Array.isArray(parsed) ? parsed.filter(isValidEntry) : []
-  } catch {
-    return []
-  }
-}
-
-function saveEntries(entries: JournalEntry[]) {
-  try {
-    localStorage.setItem(JOURNAL_KEY, JSON.stringify(entries))
-  } catch (e) {
-    if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-      alert('存储空间不足，请删除部分日志记录以释放空间。')
-    }
-  }
-}
 
 const MISTAKE_TAGS = ['追涨杀跌', '过早止盈', '未止损', '仓位过重', '情绪交易', '违反计划', '错误判断方向', '持仓太久']
 
@@ -83,8 +28,7 @@ export default function Journal() {
   const { closedTrades } = useTradeStore()
   const { user } = useAuthStore()
   const isMobile = useIsMobile()
-  const [entries, setEntries] = useState<JournalEntry[]>(loadEntries)
-  const [cloudLoaded, setCloudLoaded] = useState(false)
+  const { entries, addEntry, updateEntry, deleteEntry } = useJournalStore()
   const [showModal, setShowModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
   const [selected, setSelected] = useState<JournalEntry | null>(null)
@@ -119,26 +63,6 @@ export default function Journal() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Load from Supabase on mount
-  useEffect(() => {
-    if (!user || cloudLoaded) return
-    loadCloudJournal(user.id).then((cloudEntries) => {
-      if (!cloudEntries) return
-      setCloudLoaded(true)
-      const valid = cloudEntries.filter(isValidEntry)
-      if (valid.length > 0) {
-        setEntries(valid)
-        saveEntries(valid)
-      } else {
-        const local = loadEntries()
-        if (local.length > 0) {
-          local.forEach((e) => void upsertJournalEntry(user.id, { ...e, images: e.images ?? [], review: e.review ?? '' }))
-        }
-        setCloudLoaded(true)
-      }
-    })
-  }, [user?.id])
 
   const setField = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -194,7 +118,7 @@ export default function Journal() {
   const removeImage = (url: string) => setForm((f) => ({ ...f, images: f.images.filter((u) => u !== url) }))
 
   const save = () => {
-    const updated: JournalEntry = {
+    const entry: JournalEntry = {
       id: editingEntry?.id ?? Date.now().toString(36),
       date: form.date,
       summary: form.summary,
@@ -207,22 +131,18 @@ export default function Journal() {
       images: form.images,
       review: editingEntry?.review,
     }
-    const newEntries = editingEntry
-      ? entries.map((e) => e.id === editingEntry.id ? updated : e)
-      : [updated, ...entries]
-    setEntries(newEntries)
-    saveEntries(newEntries)
-    if (user) void upsertJournalEntry(user.id, { ...updated, images: updated.images ?? [], review: updated.review ?? '' })
+    if (editingEntry) {
+      updateEntry(entry, user?.id)
+    } else {
+      addEntry(entry, user?.id)
+    }
     setShowModal(false)
     setEditingEntry(null)
-    if (selected?.id === updated.id) setSelected(updated)
+    if (selected?.id === entry.id) setSelected(entry)
   }
 
-  const deleteEntry = (id: string) => {
-    const updated = entries.filter((e) => e.id !== id)
-    setEntries(updated)
-    saveEntries(updated)
-    if (user) void deleteJournalEntry(user.id, id)
+  const handleDeleteEntry = (id: string) => {
+    deleteEntry(id, user?.id)
     if (selected?.id === id) { setSelected(null); setReviewText('') }
   }
 
@@ -236,10 +156,7 @@ export default function Journal() {
   const saveReview = () => {
     if (!selected) return
     const updatedEntry = { ...selected, review: reviewText }
-    const updated = entries.map((e) => e.id === selected.id ? updatedEntry : e)
-    setEntries(updated)
-    saveEntries(updated)
-    if (user) void upsertJournalEntry(user.id, { ...updatedEntry, images: updatedEntry.images ?? [], review: reviewText })
+    updateEntry(updatedEntry, user?.id)
     setSelected((s) => s ? { ...s, review: reviewText } : s)
     setReviewSaved(true)
     setTimeout(() => setReviewSaved(false), 2000)
@@ -465,7 +382,7 @@ export default function Journal() {
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8892a4', padding: 0, lineHeight: 1 }}>
                     <Edit3 size={13} />
                   </button>
-                  <button onClick={(ev) => { ev.stopPropagation(); deleteEntry(e.id) }}
+                  <button onClick={(ev) => { ev.stopPropagation(); handleDeleteEntry(e.id) }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 0, lineHeight: 1 }}>
                     <X size={14} />
                   </button>

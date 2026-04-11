@@ -33,15 +33,26 @@ async function fetchCryptoPrice(symbol: string): Promise<number | null> {
 }
 
 async function fetchYahooPrice(symbol: string): Promise<number | null> {
-  // Yahoo Finance v8 chart endpoint (no API key required, CORS-friendly via cors proxy fallback)
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
-  const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-  if (!res.ok) return null
-  const data = (await res.json()) as {
-    chart?: { result?: { meta?: { regularMarketPrice?: number } }[] }
+  const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
+  const direct1 = `https://query1.finance.yahoo.com${path}`
+  const direct2 = `https://query2.finance.yahoo.com${path}`
+  const proxied = `https://corsproxy.io/?${encodeURIComponent(direct1)}`
+
+  // Try endpoints in order; return on first success
+  for (const url of [direct1, direct2, proxied]) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) continue
+      const data = (await res.json()) as {
+        chart?: { result?: { meta?: { regularMarketPrice?: number } }[] }
+      }
+      const price = data.chart?.result?.[0]?.meta?.regularMarketPrice
+      if (price != null && !isNaN(price)) return price
+    } catch {
+      // network error or timeout — try next endpoint
+    }
   }
-  const price = data.chart?.result?.[0]?.meta?.regularMarketPrice
-  return price != null && !isNaN(price) ? price : null
+  return null
 }
 
 /** Fetch prices for multiple positions in parallel, returning a map of symbol → price. */

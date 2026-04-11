@@ -10,10 +10,12 @@ import Profile from './pages/Profile'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useTradeStore } from './store/useTradeStore'
 import { useAuthStore } from './store/useAuthStore'
+import { useJournalStore } from './store/useJournalStore'
 
 export default function App() {
   const { view, syncFromCloud, clearUserData, cloudSynced } = useTradeStore()
   const { user, initialized, init } = useAuthStore()
+  const { syncFromCloud: syncJournal, clearJournal } = useJournalStore()
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
@@ -24,9 +26,13 @@ export default function App() {
   useEffect(() => {
     if (user) {
       setSyncing(true)
-      syncFromCloud(user.id).finally(() => setSyncing(false))
+      Promise.all([
+        syncFromCloud(user.id),
+        syncJournal(user.id),
+      ]).finally(() => setSyncing(false))
     } else {
       clearUserData()
+      clearJournal()
     }
   }, [user?.id])
 

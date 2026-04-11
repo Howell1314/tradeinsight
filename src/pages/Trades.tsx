@@ -6,16 +6,7 @@ import AddTradeModal from '../components/AddTradeModal'
 import CsvImportModal from '../components/CsvImportModal'
 import { Plus, Upload, Trash2, Edit3, Search, Filter, Download } from 'lucide-react'
 import { useIsMobile } from '../hooks/useIsMobile'
-
-const ASSET_COLORS: Record<AssetClass, string> = {
-  crypto: '#f59e0b', equity: '#3b82f6', option: '#8b5cf6',
-  etf: '#22c55e', cfd: '#ec4899', futures: '#f97316',
-}
-
-const ASSET_LABELS: Record<AssetClass, string> = {
-  crypto: 'Crypto', equity: '个股', option: '期权',
-  etf: 'ETF', cfd: 'CFD', futures: '期货',
-}
+import { ASSET_COLORS, ASSET_LABELS } from '../constants/assets'
 
 const DIR_LABEL: Record<string, string> = {
   buy: '买入', sell: '卖出', short: '做空', cover: '回补',
@@ -81,25 +72,57 @@ export default function Trades() {
   const hasFilter = !!(search || filterAsset || filterDir || filterMonth || filterDateFrom || filterDateTo)
 
   function exportCsv() {
-    const headers = ['日期', '品种', '标的', '方向', '数量', '价格', '金额', '佣金', '账户', '合约乘数', '到期日', '备注']
+    // Format a Date to "YYYY-MM-DD" in local time
+    const fmtDatetime = (iso: string) => {
+      const d = new Date(iso)
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    }
+    // Parse any date string and return "YYYY-MM-DD", or '' if invalid/empty
+    const fmtDate = (val: unknown): string => {
+      if (!val) return ''
+      const d = new Date(val as string)
+      if (isNaN(d.getTime())) return String(val)
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    }
+    const fmtNum = (n: number, decimals = 2) => n.toFixed(decimals)
+
+    const EMOTION_LABEL: Record<string, string> = {
+      calm: '冷静', confident: '自信', hesitant: '犹豫', impulsive: '冲动',
+    }
+
+    const headers = [
+      '日期', '品种', '标的', '方向',
+      '数量', '价格', '金额', '手续费', '其他费用',
+      '账户', '合约乘数', '到期日',
+      '计划止损', '计划目标', '情绪', '策略标签', '备注',
+    ]
     const rows = filtered.map((t) => {
       const meta = t.metadata as Record<string, unknown>
       return [
-        new Date(t.traded_at).toLocaleString('zh-CN'),
+        fmtDatetime(t.traded_at),
         ASSET_LABELS[t.asset_class] || t.asset_class,
         t.symbol,
         DIR_LABEL[t.direction] || t.direction,
-        t.quantity,
-        t.price,
-        t.total_amount,
-        t.commission,
+        fmtNum(t.quantity, t.quantity % 1 === 0 ? 0 : 4),
+        fmtNum(t.price),
+        fmtNum(t.total_amount),
+        fmtNum(t.commission),
+        fmtNum(t.fees),
         accountName(t.account_id),
         meta?.contract_multiplier ?? 1,
-        meta?.expiration ?? '',
+        fmtDate(meta?.expiration),
+        t.planned_stop != null ? fmtNum(t.planned_stop) : '',
+        t.planned_target != null ? fmtNum(t.planned_target) : '',
+        t.emotion ? (EMOTION_LABEL[t.emotion] ?? t.emotion) : '',
+        t.strategy_tags.join(' / '),
         t.notes,
       ]
     })
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const csv = [headers, ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

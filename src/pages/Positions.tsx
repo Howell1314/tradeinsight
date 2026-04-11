@@ -5,18 +5,24 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import type { AssetClass } from '../types/trade'
 import { Edit2, Check, RefreshCw, BookOpen } from 'lucide-react'
 import { fetchPrices, fetchPrice } from '../lib/priceApi'
+import { ASSET_COLORS, ASSET_LABELS } from '../constants/assets'
 
-const ASSET_COLORS: Record<AssetClass, string> = {
-  crypto: '#f59e0b', equity: '#3b82f6', option: '#8b5cf6',
-  etf: '#22c55e', cfd: '#ec4899', futures: '#f97316',
-}
-const ASSET_LABELS: Record<AssetClass, string> = {
-  crypto: 'Crypto', equity: '个股', option: '期权',
-  etf: 'ETF', cfd: 'CFD', futures: '期货',
+/** Returns a short relative-time label when price is stale (>30 min), null otherwise. */
+function priceAgeLabel(updatedAt: number | undefined): { label: string; stale: boolean } | null {
+  if (!updatedAt) return null
+  const ageMs = Date.now() - updatedAt
+  if (ageMs < 30 * 60 * 1000) return null // fresh — no label
+  const ageMin = Math.floor(ageMs / 60000)
+  if (ageMin < 60) return { label: `${ageMin}分钟前`, stale: false }
+  const ageH = Math.floor(ageMin / 60)
+  if (ageH < 24) return { label: `${ageH}小时前`, stale: ageH >= 4 }
+  const ageD = Math.floor(ageH / 24)
+  return { label: `${ageD}天前`, stale: true }
 }
 
-function PriceEditor({ symbol, assetClass, current, onSave }: {
-  symbol: string; assetClass: AssetClass; current: number; onSave: (v: number) => void
+function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
+  symbol: string; assetClass: AssetClass; current: number
+  updatedAt?: number; onSave: (v: number) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(current))
@@ -34,6 +40,8 @@ function PriceEditor({ symbol, assetClass, current, onSave }: {
     setRefreshing(false)
     if (price != null) { onSave(price); setVal(String(price)) }
   }
+
+  const age = priceAgeLabel(updatedAt)
 
   if (editing) {
     return (
@@ -57,26 +65,36 @@ function PriceEditor({ symbol, assetClass, current, onSave }: {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ color: '#e2e8f0' }}>{formatCurrency(current)}</span>
-      <button onClick={refresh} disabled={refreshing} title="从行情接口刷新价格"
-        style={{ background: 'none', border: 'none', cursor: refreshing ? 'default' : 'pointer', color: refreshing ? '#3b82f6' : '#4a5268', padding: 2,
-          animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
-        <RefreshCw size={12} />
-      </button>
-      <button
-        onClick={() => { setVal(String(current)); setEditing(true) }}
-        title="手动输入价格"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2 }}
-      >
-        <Edit2 size={12} />
-      </button>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ color: '#e2e8f0' }}>{formatCurrency(current)}</span>
+        <button onClick={refresh} disabled={refreshing} title="从行情接口刷新价格"
+          style={{ background: 'none', border: 'none', cursor: refreshing ? 'default' : 'pointer', color: refreshing ? '#3b82f6' : '#4a5268', padding: 2,
+            animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
+          <RefreshCw size={12} />
+        </button>
+        <button
+          onClick={() => { setVal(String(current)); setEditing(true) }}
+          title="手动输入价格"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2 }}
+        >
+          <Edit2 size={12} />
+        </button>
+      </div>
+      {age && (
+        <span style={{
+          fontSize: 10, color: age.stale ? '#f59e0b' : '#6b7280',
+          lineHeight: 1, letterSpacing: '0.02em',
+        }} title="价格更新时间">
+          {age.stale ? '⚠ ' : ''}{age.label}
+        </span>
+      )}
     </div>
   )
 }
 
 export default function Positions() {
-  const { openPositions, closedTrades, updateCurrentPrice, setView } = useTradeStore()
+  const { openPositions, closedTrades, updateCurrentPrice, setView, currentPriceTimes } = useTradeStore()
   const isMobile = useIsMobile()
   const [refreshingAll, setRefreshingAll] = useState(false)
 
@@ -174,6 +192,7 @@ export default function Positions() {
                       <PriceEditor
                         symbol={pos.symbol} assetClass={pos.asset_class}
                         current={pos.current_price}
+                        updatedAt={currentPriceTimes[`${pos.account_id}::${pos.symbol}`]}
                         onSave={(p) => updateCurrentPrice(pos.account_id, pos.symbol, p)}
                       />
                     </span>
@@ -210,6 +229,7 @@ export default function Positions() {
                           <PriceEditor
                             symbol={pos.symbol} assetClass={pos.asset_class}
                             current={pos.current_price}
+                            updatedAt={currentPriceTimes[`${pos.account_id}::${pos.symbol}`]}
                             onSave={(p) => updateCurrentPrice(pos.account_id, pos.symbol, p)}
                           />
                         </td>

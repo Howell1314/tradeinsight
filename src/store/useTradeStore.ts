@@ -6,6 +6,8 @@ import type { DashboardStats } from '../utils/calculations'
 import {
   loadCloudData, upsertTrade, upsertTrades, deleteCloudTrade,
   upsertAccount, upsertAccounts, deleteCloudAccount,
+  loadAccountTransactions, upsertAccountTransactions, deleteCloudAccountTransaction,
+  loadRiskRules, upsertRiskRules,
 } from '../lib/syncTrades'
 
 const VALID_ASSET_CLASSES = ['crypto', 'equity', 'option', 'etf', 'cfd', 'futures']
@@ -74,7 +76,8 @@ interface TradeStore {
   view: 'dashboard' | 'trades' | 'positions' | 'analytics' | 'journal' | 'profile'
   userId: string | null
   cloudSynced: boolean
-  currentPrices: Record<string, number> // key: "accountId::symbol"
+  currentPrices: Record<string, number>     // key: "accountId::symbol"
+  currentPriceTimes: Record<string, number>  // key: "accountId::symbol" → epoch ms
   riskRules: RiskRules
 
   // Derived
@@ -120,11 +123,30 @@ function applyCurrentPrices(positions: Position[], currentPrices: Record<string,
   })
 }
 
-function derive(trades: Trade[], selectedAccount: string | null, currentPrices: Record<string, number> = {}) {
+// Module-level cache for the expensive processTradesIntoPositions + computeStats step.
+// When only currentPrices changes (e.g. price refresh), we skip re-processing trades.
+let _coreCache: {
+  trades: Trade[]
+  selectedAccount: string | null
+  closedTrades: ClosedTrade[]
+  rawPositions: Position[]
+  stats: DashboardStats
+} | null = null
+
+function deriveCore(trades: Trade[], selectedAccount: string | null) {
+  if (_coreCache && _coreCache.trades === trades && _coreCache.selectedAccount === selectedAccount) {
+    return _coreCache
+  }
   const filtered = selectedAccount ? trades.filter((t) => t.account_id === selectedAccount) : trades
   const { closedTrades, openPositions: rawPositions } = processTradesIntoPositions(filtered)
-  const openPositions = applyCurrentPrices(rawPositions, currentPrices)
   const stats = computeStats(closedTrades)
+  _coreCache = { trades, selectedAccount, closedTrades, rawPositions, stats }
+  return _coreCache
+}
+
+function derive(trades: Trade[], selectedAccount: string | null, currentPrices: Record<string, number> = {}) {
+  const { closedTrades, rawPositions, stats } = deriveCore(trades, selectedAccount)
+  const openPositions = applyCurrentPrices(rawPositions, currentPrices)
   return { closedTrades, openPositions, stats }
 }
 
@@ -147,6 +169,7 @@ export const useTradeStore = create<TradeStore>()(
       userId: null,
       cloudSynced: false,
       currentPrices: {},
+      currentPriceTimes: {},
       riskRules: {},
       closedTrades: [],
       openPositions: [],
@@ -237,29 +260,43 @@ export const useTradeStore = create<TradeStore>()(
         set((s) => {
           const key = `${accountId}::${symbol}`
           const currentPrices = { ...s.currentPrices, [key]: price }
+          const currentPriceTimes = { ...s.currentPriceTimes, [key]: Date.now() }
           const openPositions = applyCurrentPrices(
             s.openPositions.map(p => ({ ...p })),
             currentPrices,
           )
-          return { currentPrices, openPositions }
+          return { currentPrices, currentPriceTimes, openPositions }
         })
       },
 
       addAccountTransaction: (tx) => {
-        set((s) => ({ accountTransactions: [...s.accountTransactions, tx] }))
+        set((s) => {
+          if (s.userId) void upsertAccountTransactions(s.userId, [tx])
+          return { accountTransactions: [...s.accountTransactions, tx] }
+        })
       },
 
       deleteAccountTransaction: (id) => {
-        set((s) => ({ accountTransactions: s.accountTransactions.filter((t) => t.id !== id) }))
+        set((s) => {
+          if (s.userId) void deleteCloudAccountTransaction(s.userId, id)
+          return { accountTransactions: s.accountTransactions.filter((t) => t.id !== id) }
+        })
       },
 
       setRiskRules: (rules) => {
-        set({ riskRules: rules })
+        set((s) => {
+          if (s.userId) void upsertRiskRules(s.userId, rules)
+          return { riskRules: rules }
+        })
       },
 
       syncFromCloud: async (userId) => {
         set({ userId })
-        const data = await loadCloudData(userId)
+        const [data, cloudTxs, cloudRules] = await Promise.all([
+          loadCloudData(userId),
+          loadAccountTransactions(userId),
+          loadRiskRules(userId),
+        ])
         if (!data) return // keep local data if network fails
 
         let { trades, accounts } = data
@@ -273,10 +310,11 @@ export const useTradeStore = create<TradeStore>()(
         }
 
         // Merge: last-write-wins per trade using updated_at
-        const { trades: localTrades, accounts: localAccounts } = get()
+        const { trades: localTrades, accounts: localAccounts, accountTransactions: localTxs } = get()
         if (trades.length === 0 && localTrades.length > 0) {
           void upsertTrades(userId, localTrades)
           void upsertAccounts(userId, localAccounts.filter((a) => a.id !== 'default'))
+          if (localTxs.length > 0) void upsertAccountTransactions(userId, localTxs)
           set({ userId, cloudSynced: true, ...derive(localTrades, get().selectedAccount, get().currentPrices) })
           return
         }
@@ -301,8 +339,26 @@ export const useTradeStore = create<TradeStore>()(
         }
         if (toUpsertToCloud.length > 0) void upsertTrades(userId, toUpsertToCloud)
 
+        // Merge account transactions: union by id, local-only entries pushed to cloud
+        let mergedTxs = localTxs
+        if (cloudTxs !== null) {
+          const cloudTxIds = new Set(cloudTxs.map((t) => t.id))
+          const localOnly = localTxs.filter((t) => !cloudTxIds.has(t.id))
+          if (localOnly.length > 0) void upsertAccountTransactions(userId, localOnly)
+          mergedTxs = [...cloudTxs, ...localOnly]
+        }
+
         const mergedTrades = Array.from(tradeMap.values())
-        set({ userId, trades: mergedTrades, accounts, cloudSynced: true, ...derive(mergedTrades, get().selectedAccount, get().currentPrices) })
+        set({
+          userId,
+          trades: mergedTrades,
+          accounts,
+          accountTransactions: mergedTxs,
+          // Cloud wins for risk rules; fall back to local if cloud has none
+          ...(cloudRules ? { riskRules: cloudRules } : {}),
+          cloudSynced: true,
+          ...derive(mergedTrades, get().selectedAccount, get().currentPrices),
+        })
       },
 
       clearUserData: () => {
@@ -323,6 +379,7 @@ export const useTradeStore = create<TradeStore>()(
         accountTransactions: s.accountTransactions,
         selectedAccount: s.selectedAccount,
         currentPrices: s.currentPrices,
+        currentPriceTimes: s.currentPriceTimes,
         riskRules: s.riskRules,
       }),
       onRehydrateStorage: () => (state) => {
@@ -332,6 +389,7 @@ export const useTradeStore = create<TradeStore>()(
           state.accounts = Array.isArray(state.accounts) ? state.accounts.filter(isValidAccount) : []
           state.accountTransactions = Array.isArray(state.accountTransactions) ? state.accountTransactions : []
           state.currentPrices = (state.currentPrices && typeof state.currentPrices === 'object') ? state.currentPrices : {}
+          state.currentPriceTimes = (state.currentPriceTimes && typeof state.currentPriceTimes === 'object') ? state.currentPriceTimes : {}
           state.riskRules = (state.riskRules && typeof state.riskRules === 'object') ? state.riskRules : {}
           if (!state.accounts.some((a) => a.id === 'default')) {
             state.accounts.unshift({ id: 'default', name: '默认账户', currency: 'USD' })

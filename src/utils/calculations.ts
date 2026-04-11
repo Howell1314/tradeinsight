@@ -96,9 +96,12 @@ export function processTradesIntoPositions(
           const total_commission =
             openShort.trade.commission * (matchQty / openShort.trade.quantity) +
             trade.commission * (matchQty / trade.quantity)
-          const shortNetPnl = gross_pnl - total_commission
+          const total_fees =
+            openShort.trade.fees * (matchQty / openShort.trade.quantity) +
+            trade.fees * (matchQty / trade.quantity)
+          const shortNetPnl = gross_pnl - total_commission - total_fees
           closedTrades.push({
-            id: generateId(),
+            id: `ct__${openShort.trade.id}__${trade.id}__${matchQty.toFixed(8)}`,
             symbol,
             asset_class,
             account_id,
@@ -111,7 +114,7 @@ export function processTradesIntoPositions(
             gross_pnl,
             net_pnl: shortNetPnl,
             commission: total_commission,
-            fees: 0,
+            fees: total_fees,
             opened_at: openShort.trade.traded_at,
             closed_at: trade.traded_at,
             holding_days: Math.max(
@@ -145,9 +148,12 @@ export function processTradesIntoPositions(
           const total_commission =
             openLong.trade.commission * (matchQty / openLong.trade.quantity) +
             trade.commission * (matchQty / trade.quantity)
-          const longNetPnl = gross_pnl - total_commission
+          const total_fees =
+            openLong.trade.fees * (matchQty / openLong.trade.quantity) +
+            trade.fees * (matchQty / trade.quantity)
+          const longNetPnl = gross_pnl - total_commission - total_fees
           closedTrades.push({
-            id: generateId(),
+            id: `ct__${openLong.trade.id}__${trade.id}__${matchQty.toFixed(8)}`,
             symbol,
             asset_class,
             account_id,
@@ -160,7 +166,7 @@ export function processTradesIntoPositions(
             gross_pnl,
             net_pnl: longNetPnl,
             commission: total_commission,
-            fees: 0,
+            fees: total_fees,
             opened_at: openLong.trade.traded_at,
             closed_at: trade.traded_at,
             holding_days: Math.max(
@@ -186,45 +192,47 @@ export function processTradesIntoPositions(
       }
     }
 
-    // Remaining open long positions
-    for (const item of longQueue) {
-      if (item.remaining > 0) {
-        const multiplier = Number((item.trade.metadata as Record<string, unknown>)?.contract_multiplier ?? 1) || 1
-        openPositions.push({
-          id: generateId(),
-          account_id,
-          asset_class,
-          symbol,
-          quantity: item.remaining,
-          avg_cost: item.trade.price,
-          current_price: item.trade.price,
-          unrealized_pnl: 0,
-          unrealized_pnl_pct: 0,
-          opened_at: item.trade.traded_at,
-          trades: groupTrades,
-          contract_multiplier: multiplier,
-        })
-      }
+    // Remaining open long positions — aggregate all remaining lots into one position
+    const remainingLongs = longQueue.filter(item => item.remaining > 0)
+    if (remainingLongs.length > 0) {
+      const totalQty = remainingLongs.reduce((s, item) => s + item.remaining, 0)
+      const avgCost = remainingLongs.reduce((s, item) => s + item.trade.price * item.remaining, 0) / totalQty
+      const multiplier = Number((remainingLongs[0].trade.metadata as Record<string, unknown>)?.contract_multiplier ?? 1) || 1
+      openPositions.push({
+        id: `pos__${account_id}__${symbol}__long`,
+        account_id,
+        asset_class,
+        symbol,
+        quantity: totalQty,
+        avg_cost: avgCost,
+        current_price: avgCost,
+        unrealized_pnl: 0,
+        unrealized_pnl_pct: 0,
+        opened_at: remainingLongs[0].trade.traded_at,
+        trades: groupTrades,
+        contract_multiplier: multiplier,
+      })
     }
-    // Remaining open short positions
-    for (const item of shortQueue) {
-      if (item.remaining > 0) {
-        const multiplier = Number((item.trade.metadata as Record<string, unknown>)?.contract_multiplier ?? 1) || 1
-        openPositions.push({
-          id: generateId(),
-          account_id,
-          asset_class,
-          symbol,
-          quantity: -item.remaining, // negative = short
-          avg_cost: item.trade.price,
-          current_price: item.trade.price,
-          unrealized_pnl: 0,
-          unrealized_pnl_pct: 0,
-          opened_at: item.trade.traded_at,
-          trades: groupTrades,
-          contract_multiplier: multiplier,
-        })
-      }
+    // Remaining open short positions — aggregate all remaining lots into one position
+    const remainingShorts = shortQueue.filter(item => item.remaining > 0)
+    if (remainingShorts.length > 0) {
+      const totalQty = remainingShorts.reduce((s, item) => s + item.remaining, 0)
+      const avgCost = remainingShorts.reduce((s, item) => s + item.trade.price * item.remaining, 0) / totalQty
+      const multiplier = Number((remainingShorts[0].trade.metadata as Record<string, unknown>)?.contract_multiplier ?? 1) || 1
+      openPositions.push({
+        id: `pos__${account_id}__${symbol}__short`,
+        account_id,
+        asset_class,
+        symbol,
+        quantity: -totalQty, // negative = short
+        avg_cost: avgCost,
+        current_price: avgCost,
+        unrealized_pnl: 0,
+        unrealized_pnl_pct: 0,
+        opened_at: remainingShorts[0].trade.traded_at,
+        trades: groupTrades,
+        contract_multiplier: multiplier,
+      })
     }
   }
 
@@ -266,12 +274,17 @@ export function computeStats(closedTrades: ClosedTrade[]): DashboardStats {
     if (dd > max_drawdown) max_drawdown = dd
   }
 
-  // Sharpe ratio (simplified)
-  const returns = sorted.map((t) => t.net_pnl)
-  const mean = returns.reduce((s, v) => s + v, 0) / returns.length
-  const variance = returns.reduce((s, v) => s + (v - mean) ** 2, 0) / returns.length
-  const std = Math.sqrt(variance)
-  const sharpe_ratio = std > 0 ? (mean / std) * Math.sqrt(252) : 0
+  // Sharpe ratio — group by trading day first, then annualize with sqrt(252)
+  const byDay: Record<string, number> = {}
+  for (const t of sorted) {
+    const day = t.closed_at.slice(0, 10)
+    byDay[day] = (byDay[day] || 0) + t.net_pnl
+  }
+  const dailyReturns = Object.values(byDay)
+  const dailyMean = dailyReturns.reduce((s, v) => s + v, 0) / dailyReturns.length
+  const dailyVariance = dailyReturns.reduce((s, v) => s + (v - dailyMean) ** 2, 0) / dailyReturns.length
+  const dailyStd = Math.sqrt(dailyVariance)
+  const sharpe_ratio = dailyStd > 0 ? (dailyMean / dailyStd) * Math.sqrt(252) : 0
 
   // Consecutive wins/losses
   let maxWins = 0, maxLosses = 0, curWins = 0, curLosses = 0
