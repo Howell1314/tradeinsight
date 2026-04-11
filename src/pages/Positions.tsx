@@ -3,7 +3,8 @@ import { useTradeStore } from '../store/useTradeStore'
 import { formatCurrency, formatPercent } from '../utils/calculations'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type { AssetClass } from '../types/trade'
-import { Edit2, Check } from 'lucide-react'
+import { Edit2, Check, RefreshCw, BookOpen } from 'lucide-react'
+import { fetchPrices, fetchPrice } from '../lib/priceApi'
 
 const ASSET_COLORS: Record<AssetClass, string> = {
   crypto: '#f59e0b', equity: '#3b82f6', option: '#8b5cf6',
@@ -14,16 +15,24 @@ const ASSET_LABELS: Record<AssetClass, string> = {
   etf: 'ETF', cfd: 'CFD', futures: '期货',
 }
 
-function PriceEditor({ current, onSave }: {
-  accountId?: string; symbol?: string; current: number; onSave: (v: number) => void
+function PriceEditor({ symbol, assetClass, current, onSave }: {
+  symbol: string; assetClass: AssetClass; current: number; onSave: (v: number) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(current))
+  const [refreshing, setRefreshing] = useState(false)
 
   const commit = () => {
     const n = parseFloat(val)
     if (!isNaN(n) && n > 0) onSave(n)
     setEditing(false)
+  }
+
+  const refresh = async () => {
+    setRefreshing(true)
+    const price = await fetchPrice(symbol, assetClass)
+    setRefreshing(false)
+    if (price != null) { onSave(price); setVal(String(price)) }
   }
 
   if (editing) {
@@ -50,9 +59,14 @@ function PriceEditor({ current, onSave }: {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
       <span style={{ color: '#e2e8f0' }}>{formatCurrency(current)}</span>
+      <button onClick={refresh} disabled={refreshing} title="从行情接口刷新价格"
+        style={{ background: 'none', border: 'none', cursor: refreshing ? 'default' : 'pointer', color: refreshing ? '#3b82f6' : '#4a5268', padding: 2,
+          animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
+        <RefreshCw size={12} />
+      </button>
       <button
         onClick={() => { setVal(String(current)); setEditing(true) }}
-        title="更新当前价格"
+        title="手动输入价格"
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2 }}
       >
         <Edit2 size={12} />
@@ -62,8 +76,22 @@ function PriceEditor({ current, onSave }: {
 }
 
 export default function Positions() {
-  const { openPositions, closedTrades, updateCurrentPrice } = useTradeStore()
+  const { openPositions, closedTrades, updateCurrentPrice, setView } = useTradeStore()
   const isMobile = useIsMobile()
+  const [refreshingAll, setRefreshingAll] = useState(false)
+
+  const refreshAll = async () => {
+    if (openPositions.length === 0) return
+    setRefreshingAll(true)
+    const priceMap = await fetchPrices(
+      openPositions.map(p => ({ symbol: p.symbol, assetClass: p.asset_class }))
+    )
+    for (const pos of openPositions) {
+      const price = priceMap[pos.symbol]
+      if (price != null) updateCurrentPrice(pos.account_id, pos.symbol, price)
+    }
+    setRefreshingAll(false)
+  }
 
   const recentClosed = [...closedTrades]
     .sort((a, b) => new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime())
@@ -88,6 +116,7 @@ export default function Positions() {
 
   return (
     <div style={{ padding: isMobile ? '12px 10px' : 24 }}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <div style={{ marginBottom: isMobile ? 16 : 24 }}>
         <h1 style={{ margin: 0, fontSize: isMobile ? 20 : 24, fontWeight: 700, color: '#e2e8f0' }}>持仓管理</h1>
         <p style={{ margin: '4px 0 0', color: '#8892a4', fontSize: 13 }}>
@@ -103,7 +132,18 @@ export default function Positions() {
       {/* Open Positions */}
       <div style={{ marginBottom: 20 }}>
         {sectionHeader('未平仓持仓', '#3b82f6', openPositions.length,
-          <span style={{ fontSize: 12, color: '#4a5268', marginLeft: 4 }}>点击价格旁 ✏️ 更新当前价格</span>
+          openPositions.length > 0 ? (
+            <button onClick={refreshAll} disabled={refreshingAll}
+              style={{
+                marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px', borderRadius: 6, border: '1px solid #2d3148',
+                background: 'transparent', color: refreshingAll ? '#3b82f6' : '#8892a4',
+                cursor: refreshingAll ? 'default' : 'pointer', fontSize: 12,
+              }}>
+              <RefreshCw size={12} style={{ animation: refreshingAll ? 'spin 1s linear infinite' : 'none' }} />
+              {refreshingAll ? '刷新中…' : '一键刷新行情'}
+            </button>
+          ) : undefined
         )}
         {openPositions.length === 0 ? emptyBox('暂无未平仓持仓') : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -132,7 +172,7 @@ export default function Positions() {
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       现价:
                       <PriceEditor
-                        accountId={pos.account_id} symbol={pos.symbol}
+                        symbol={pos.symbol} assetClass={pos.asset_class}
                         current={pos.current_price}
                         onSave={(p) => updateCurrentPrice(pos.account_id, pos.symbol, p)}
                       />
@@ -168,7 +208,7 @@ export default function Positions() {
                         <td style={{ padding: '10px 14px', color: '#e2e8f0' }}>{formatCurrency(pos.avg_cost)}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <PriceEditor
-                            accountId={pos.account_id} symbol={pos.symbol}
+                            symbol={pos.symbol} assetClass={pos.asset_class}
                             current={pos.current_price}
                             onSave={(p) => updateCurrentPrice(pos.account_id, pos.symbol, p)}
                           />
@@ -221,7 +261,7 @@ export default function Positions() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #2d3148', background: '#161928' }}>
-                    {['标的', '方向', '数量', '开仓价', '平仓价', '净盈亏', '持仓天数', '结算时间'].map((h) => (
+                    {['标的', '方向', '数量', '开仓价', '平仓价', '净盈亏', '持仓天数', '结算时间', ''].map((h) => (
                       <th key={h} style={{ padding: '11px 14px', textAlign: 'left', color: '#6b7280', fontWeight: 600, fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -237,6 +277,21 @@ export default function Positions() {
                       <td style={{ padding: '10px 14px', fontWeight: 700, color: ct.net_pnl >= 0 ? '#22c55e' : '#ef4444' }}>{ct.net_pnl >= 0 ? '+' : ''}{formatCurrency(ct.net_pnl)}</td>
                       <td style={{ padding: '10px 14px', color: '#8892a4' }}>{ct.holding_days} 天</td>
                       <td style={{ padding: '10px 14px', color: '#8892a4' }}>{new Date(ct.closed_at).toLocaleDateString('zh-CN')}</td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <button
+                          onClick={() => {
+                            localStorage.setItem('tradeinsight-journal-prefill', ct.closed_at.slice(0, 10))
+                            setView('journal')
+                          }}
+                          title="为该日期写日志"
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 4,
+                            background: 'none', border: '1px solid #2d3148', borderRadius: 6,
+                            padding: '3px 8px', cursor: 'pointer', color: '#8892a4', fontSize: 11,
+                          }}>
+                          <BookOpen size={11} /> 写日志
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

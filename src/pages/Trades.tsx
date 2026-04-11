@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTradeStore } from '../store/useTradeStore'
 import type { Trade, AssetClass } from '../types/trade'
 import { formatCurrency } from '../utils/calculations'
@@ -42,6 +42,20 @@ export default function Trades() {
   const [page, setPage] = useState(1)
 
   const PAGE_SIZE = 20
+
+  // Global 'N' key shortcut to open add trade modal
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey && !showAdd && !showImport &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+        e.preventDefault()
+        setEditTrade(undefined)
+        setShowAdd(true)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [showAdd, showImport])
 
   // Build month options from trade data
   const monthOptions = useMemo(() => {

@@ -13,6 +13,7 @@ interface AuthStore {
   init: () => Promise<void>
   signUp: (email: string, password: string) => Promise<string | null>
   signIn: (email: string, password: string) => Promise<string | null>
+  signInWithGoogle: () => Promise<string | null>
   signOut: () => Promise<void>
   fetchProfile: () => Promise<void>
   updateProfile: (updates: Partial<Omit<Profile, 'id' | 'updated_at'>>) => Promise<string | null>
@@ -48,6 +49,16 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   signIn: async (email, password) => {
     set({ loading: true })
     const { error } = await supabase.auth.signInWithPassword({ email, password })
+    set({ loading: false })
+    return error?.message ?? null
+  },
+
+  signInWithGoogle: async () => {
+    set({ loading: true })
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
     set({ loading: false })
     return error?.message ?? null
   },

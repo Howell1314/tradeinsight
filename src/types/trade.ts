@@ -19,8 +19,13 @@ export interface Trade {
   strategy_tags: string[]
   notes: string
   emotion?: EmotionTag
+  /** 计划止损价（用于计算 R 倍数） */
+  planned_stop?: number
+  /** 计划目标价 */
+  planned_target?: number
   metadata: Record<string, unknown>
   created_at: string
+  updated_at?: string
 }
 
 export interface Position {
@@ -66,6 +71,10 @@ export interface ClosedTrade {
   closed_at: string
   holding_days: number
   strategy_tags: string[]
+  /** 初始风险金额 (|price - planned_stop| × qty × multiplier)，有止损时才存在 */
+  initial_risk?: number
+  /** 实际 R 倍数 = net_pnl / initial_risk */
+  actual_r?: number
 }
 
 export interface Account {

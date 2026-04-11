@@ -28,6 +28,8 @@ export default function Profile() {
     monthlyTarget: String(riskRules.monthlyTarget ?? ''),
     maxDailyLoss: String(riskRules.maxDailyLoss ?? ''),
     maxPositionRiskPct: String(riskRules.maxPositionRiskPct ?? ''),
+    maxWeeklyLoss: String(riskRules.maxWeeklyLoss ?? ''),
+    maxConsecutiveLosses: String(riskRules.maxConsecutiveLosses ?? ''),
   })
   const [riskSaved, setRiskSaved] = useState(false)
 
@@ -36,6 +38,8 @@ export default function Profile() {
       monthlyTarget: parseFloat(riskForm.monthlyTarget) > 0 ? parseFloat(riskForm.monthlyTarget) : undefined,
       maxDailyLoss: parseFloat(riskForm.maxDailyLoss) > 0 ? parseFloat(riskForm.maxDailyLoss) : undefined,
       maxPositionRiskPct: parseFloat(riskForm.maxPositionRiskPct) > 0 ? parseFloat(riskForm.maxPositionRiskPct) : undefined,
+      maxWeeklyLoss: parseFloat(riskForm.maxWeeklyLoss) > 0 ? parseFloat(riskForm.maxWeeklyLoss) : undefined,
+      maxConsecutiveLosses: parseInt(riskForm.maxConsecutiveLosses) > 0 ? parseInt(riskForm.maxConsecutiveLosses) : undefined,
     })
     setRiskSaved(true)
     setTimeout(() => setRiskSaved(false), 2000)
@@ -482,6 +486,30 @@ export default function Profile() {
               onChange={e => setRiskForm(f => ({ ...f, maxDailyLoss: e.target.value }))}
               placeholder="留空则不设置" style={smallInp} />
             <div style={{ fontSize: 11, color: '#4a5268', marginTop: 3 }}>超出时仪表盘显示红色警告</div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, color: '#8892a4', display: 'block', marginBottom: 4 }}>
+              <AlertTriangle size={11} style={{ marginRight: 4, verticalAlign: 'middle', color: '#ef4444' }} />
+              本周最大亏损 ($)
+            </label>
+            <input type="number" step="any" min="0"
+              value={riskForm.maxWeeklyLoss}
+              onChange={e => setRiskForm(f => ({ ...f, maxWeeklyLoss: e.target.value }))}
+              placeholder="留空则不设置" style={smallInp} />
+            <div style={{ fontSize: 11, color: '#4a5268', marginTop: 3 }}>超出时仪表盘显示周亏损警告</div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, color: '#8892a4', display: 'block', marginBottom: 4 }}>
+              <AlertTriangle size={11} style={{ marginRight: 4, verticalAlign: 'middle', color: '#f97316' }} />
+              最大连续亏损笔数
+            </label>
+            <input type="number" step="1" min="1"
+              value={riskForm.maxConsecutiveLosses}
+              onChange={e => setRiskForm(f => ({ ...f, maxConsecutiveLosses: e.target.value }))}
+              placeholder="例如 3" style={smallInp} />
+            <div style={{ fontSize: 11, color: '#4a5268', marginTop: 3 }}>连续亏损达到此数时触发强制休息提示</div>
           </div>
 
           <div style={{ gridColumn: 'span 2' }}>

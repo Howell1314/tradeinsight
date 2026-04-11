@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useTradeStore } from '../store/useTradeStore'
 import { useAuthStore } from '../store/useAuthStore'
 import { formatCurrency } from '../utils/calculations'
 import { uploadJournalImage } from '../lib/supabase'
 import { loadCloudJournal, upsertJournalEntry, deleteJournalEntry } from '../lib/syncTrades'
-import { Plus, X, BookOpen, ImageIcon, Loader, Edit3, Save, ChevronLeft } from 'lucide-react'
+import { Plus, X, BookOpen, ImageIcon, Loader, Edit3, Save, ChevronLeft, Search, Filter } from 'lucide-react'
 import { useIsMobile } from '../hooks/useIsMobile'
 
 interface JournalEntry {
@@ -96,6 +96,29 @@ export default function Journal() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState(blankForm)
+
+  // Filter state
+  const [filterSearch, setFilterSearch] = useState('')
+  const [filterEmotions, setFilterEmotions] = useState<string[]>([])
+  const [filterTags, setFilterTags] = useState<string[]>([])
+  const [filterDateFrom, setFilterDateFrom] = useState('')
+  const [filterDateTo, setFilterDateTo] = useState('')
+  const [filterExpanded, setFilterExpanded] = useState(false)
+
+  // Check for prefill date from Positions page navigation
+  useEffect(() => {
+    const prefillDate = localStorage.getItem('tradeinsight-journal-prefill')
+    if (prefillDate) {
+      localStorage.removeItem('tradeinsight-journal-prefill')
+      const pnlOnDate = closedTrades
+        .filter(t => t.closed_at.slice(0, 10) === prefillDate)
+        .reduce((s, t) => s + t.net_pnl, 0)
+      setForm({ ...blankForm(), date: prefillDate, pnl: String(pnlOnDate.toFixed(2)) })
+      setEditingEntry(null)
+      setShowModal(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Load from Supabase on mount
   useEffect(() => {
@@ -227,6 +250,38 @@ export default function Journal() {
     .filter((t) => t.closed_at.slice(0, 10) === today)
     .reduce((s, t) => s + t.net_pnl, 0)
 
+  const hasActiveFilter = !!(filterSearch || filterEmotions.length || filterTags.length || filterDateFrom || filterDateTo)
+
+  const filteredEntries = useMemo(() => {
+    return entries.filter((e) => {
+      if (filterSearch) {
+        const q = filterSearch.toLowerCase()
+        const inText = [e.summary, e.went_well, e.improve, e.plan, e.review ?? '']
+          .join(' ').toLowerCase().includes(q)
+        if (!inText) return false
+      }
+      if (filterEmotions.length && !filterEmotions.includes(e.emotion)) return false
+      if (filterTags.length && !filterTags.some(t => e.tags.includes(t))) return false
+      if (filterDateFrom && e.date < filterDateFrom) return false
+      if (filterDateTo && e.date > filterDateTo) return false
+      return true
+    })
+  }, [entries, filterSearch, filterEmotions, filterTags, filterDateFrom, filterDateTo])
+
+  const resetFilters = () => {
+    setFilterSearch('')
+    setFilterEmotions([])
+    setFilterTags([])
+    setFilterDateFrom('')
+    setFilterDateTo('')
+  }
+
+  const toggleFilterEmotion = (em: string) =>
+    setFilterEmotions(prev => prev.includes(em) ? prev.filter(x => x !== em) : [...prev, em])
+
+  const toggleFilterTag = (tag: string) =>
+    setFilterTags(prev => prev.includes(tag) ? prev.filter(x => x !== tag) : [...prev, tag])
+
   const inp: React.CSSProperties = {
     width: '100%', padding: '8px 12px',
     background: '#22263a', border: '1px solid #2d3148',
@@ -279,12 +334,115 @@ export default function Journal() {
       <div style={{ display: isMobile ? 'block' : 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 16 }}>
         {/* Entry list — hidden on mobile when detail is open */}
         <div style={{ display: (isMobile && mobileShowDetail) ? 'none' : 'flex', flexDirection: 'column', gap: 8 }}>
+
+          {/* Search & filter bar */}
+          {entries.length > 0 && (
+            <div style={{ background: '#1a1d27', border: '1px solid #2d3148', borderRadius: 10, padding: '10px 12px', marginBottom: 2 }}>
+              {/* Row 1: search input + expand button */}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#8892a4' }} />
+                  <input
+                    value={filterSearch}
+                    onChange={(e) => setFilterSearch(e.target.value)}
+                    placeholder="搜索总结、复盘..."
+                    style={{
+                      width: '100%', padding: '7px 10px 7px 28px',
+                      background: '#22263a', border: '1px solid #2d3148',
+                      borderRadius: 7, color: '#e2e8f0', fontSize: 12, outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={() => setFilterExpanded(v => !v)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '6px 10px', borderRadius: 7,
+                    border: `1px solid ${hasActiveFilter ? '#3b82f6' : '#2d3148'}`,
+                    background: hasActiveFilter ? '#3b82f620' : 'transparent',
+                    color: hasActiveFilter ? '#60a5fa' : '#8892a4',
+                    cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Filter size={12} />
+                  {hasActiveFilter ? '筛选中' : '筛选'}
+                </button>
+              </div>
+
+              {/* Row 2: expanded filters */}
+              {filterExpanded && (
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Emotion filter */}
+                  <div>
+                    <div style={{ fontSize: 11, color: '#8892a4', marginBottom: 5 }}>情绪状态</div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {Object.keys(EMOTION_COLORS).map((em) => (
+                        <button key={em} onClick={() => toggleFilterEmotion(em)} style={{
+                          padding: '3px 9px', borderRadius: 12, border: '1px solid',
+                          borderColor: filterEmotions.includes(em) ? EMOTION_COLORS[em] : '#2d3148',
+                          background: filterEmotions.includes(em) ? EMOTION_COLORS[em] + '22' : 'transparent',
+                          color: filterEmotions.includes(em) ? EMOTION_COLORS[em] : '#8892a4',
+                          fontSize: 11, cursor: 'pointer',
+                        }}>{em}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Mistake tag filter */}
+                  <div>
+                    <div style={{ fontSize: 11, color: '#8892a4', marginBottom: 5 }}>失误标签</div>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {MISTAKE_TAGS.map((tag) => (
+                        <button key={tag} onClick={() => toggleFilterTag(tag)} style={{
+                          padding: '3px 8px', borderRadius: 10, border: '1px solid',
+                          borderColor: filterTags.includes(tag) ? '#ef4444' : '#2d3148',
+                          background: filterTags.includes(tag) ? '#ef444422' : 'transparent',
+                          color: filterTags.includes(tag) ? '#ef4444' : '#8892a4',
+                          fontSize: 11, cursor: 'pointer',
+                        }}>{tag}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Date range */}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#8892a4', whiteSpace: 'nowrap' }}>日期范围</span>
+                    <input type="date" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)}
+                      style={{ flex: 1, padding: '5px 8px', background: '#22263a', border: '1px solid #2d3148', borderRadius: 6, color: '#e2e8f0', fontSize: 11, outline: 'none', colorScheme: 'dark' }} />
+                    <span style={{ color: '#4a5268', fontSize: 12 }}>—</span>
+                    <input type="date" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)}
+                      style={{ flex: 1, padding: '5px 8px', background: '#22263a', border: '1px solid #2d3148', borderRadius: 6, color: '#e2e8f0', fontSize: 11, outline: 'none', colorScheme: 'dark' }} />
+                  </div>
+
+                  {hasActiveFilter && (
+                    <button onClick={resetFilters} style={{
+                      alignSelf: 'flex-start', padding: '4px 10px', borderRadius: 6,
+                      border: '1px solid #2d3148', background: 'transparent',
+                      color: '#ef4444', fontSize: 11, cursor: 'pointer',
+                    }}>清除筛选</button>
+                  )}
+                </div>
+              )}
+
+              {hasActiveFilter && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#60a5fa' }}>
+                  找到 {filteredEntries.length} / {entries.length} 条日志
+                </div>
+              )}
+            </div>
+          )}
+
           {entries.length === 0 ? (
             <div style={{ background: '#1a1d27', border: '1px solid #2d3148', borderRadius: 12, padding: 40, textAlign: 'center', color: '#4a5268' }}>
               <BookOpen size={32} style={{ margin: '0 auto 12px', display: 'block' }} />
               暂无日志记录
             </div>
-          ) : entries.map((e) => (
+          ) : filteredEntries.length === 0 ? (
+            <div style={{ background: '#1a1d27', border: '1px solid #2d3148', borderRadius: 12, padding: 32, textAlign: 'center', color: '#4a5268', fontSize: 13 }}>
+              没有匹配的日志，请调整筛选条件
+            </div>
+          ) : filteredEntries.map((e) => (
             <div key={e.id} onClick={() => selectEntry(e)} style={{
               background: '#1a1d27',
               border: `1px solid ${selected?.id === e.id ? '#3b82f6' : '#2d3148'}`,

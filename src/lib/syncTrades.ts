@@ -35,12 +35,16 @@ export async function loadCloudData(userId: string): Promise<{ trades: Trade[]; 
 }
 
 export async function upsertTrade(userId: string, trade: Trade): Promise<void> {
-  await supabase.from('trades').upsert({ ...trade, user_id: userId })
+  const now = new Date().toISOString()
+  await supabase.from('trades').upsert({ ...trade, user_id: userId, updated_at: trade.updated_at ?? now })
 }
 
 export async function upsertTrades(userId: string, trades: Trade[]): Promise<void> {
   if (!trades.length) return
-  await supabase.from('trades').upsert(trades.map((t) => ({ ...t, user_id: userId })))
+  const now = new Date().toISOString()
+  await supabase.from('trades').upsert(
+    trades.map((t) => ({ ...t, user_id: userId, updated_at: t.updated_at ?? now }))
+  )
 }
 
 export async function deleteCloudTrade(userId: string, tradeId: string): Promise<void> {

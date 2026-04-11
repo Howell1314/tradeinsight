@@ -62,6 +62,8 @@ export interface RiskRules {
   monthlyTarget?: number
   maxDailyLoss?: number
   maxPositionRiskPct?: number
+  maxWeeklyLoss?: number
+  maxConsecutiveLosses?: number
 }
 
 interface TradeStore {
@@ -155,9 +157,10 @@ export const useTradeStore = create<TradeStore>()(
         const error = validateNewTrade(trade, openPositions)
         if (error) return error
 
+        const stamped = { ...trade, updated_at: new Date().toISOString() }
         set((s) => {
-          const trades = [...s.trades, trade]
-          if (s.userId) void upsertTrade(s.userId, trade)
+          const trades = [...s.trades, stamped]
+          if (s.userId) void upsertTrade(s.userId, stamped)
           return { trades, ...derive(trades, s.selectedAccount, s.currentPrices) }
         })
         return null
@@ -165,7 +168,9 @@ export const useTradeStore = create<TradeStore>()(
 
       updateTrade: (id, updates) => {
         set((s) => {
-          const trades = s.trades.map((t) => (t.id === id ? { ...t, ...updates } : t))
+          const trades = s.trades.map((t) =>
+            t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t
+          )
           if (s.userId) {
             const updated = trades.find((t) => t.id === id)
             if (updated) void upsertTrade(s.userId, updated)
@@ -267,7 +272,7 @@ export const useTradeStore = create<TradeStore>()(
           void upsertAccount(userId, defaultAcc)
         }
 
-        // If cloud is empty but local has data, push local data up
+        // Merge: last-write-wins per trade using updated_at
         const { trades: localTrades, accounts: localAccounts } = get()
         if (trades.length === 0 && localTrades.length > 0) {
           void upsertTrades(userId, localTrades)
@@ -276,7 +281,28 @@ export const useTradeStore = create<TradeStore>()(
           return
         }
 
-        set({ userId, trades, accounts, cloudSynced: true, ...derive(trades, get().selectedAccount, get().currentPrices) })
+        // Build merged trade list: for each id, keep the record with the later updated_at
+        const tradeMap = new Map<string, Trade>()
+        for (const t of localTrades) tradeMap.set(t.id, t)
+        const toUpsertToCloud: Trade[] = []
+        for (const cloudTrade of trades) {
+          const local = tradeMap.get(cloudTrade.id)
+          if (!local) {
+            tradeMap.set(cloudTrade.id, cloudTrade) // cloud-only trade → take it
+          } else {
+            const cloudTime = cloudTrade.updated_at ?? cloudTrade.created_at
+            const localTime = local.updated_at ?? local.created_at
+            if (cloudTime >= localTime) {
+              tradeMap.set(cloudTrade.id, cloudTrade) // cloud is newer
+            } else {
+              toUpsertToCloud.push(local) // local is newer → push to cloud
+            }
+          }
+        }
+        if (toUpsertToCloud.length > 0) void upsertTrades(userId, toUpsertToCloud)
+
+        const mergedTrades = Array.from(tradeMap.values())
+        set({ userId, trades: mergedTrades, accounts, cloudSynced: true, ...derive(mergedTrades, get().selectedAccount, get().currentPrices) })
       },
 
       clearUserData: () => {

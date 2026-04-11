@@ -1,5 +1,7 @@
+import { useState, useMemo } from 'react'
 import { useTradeStore } from '../store/useTradeStore'
 import StatCard from '../components/StatCard'
+import TradeCalendar from '../components/TradeCalendar'
 import { useIsMobile } from '../hooks/useIsMobile'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -24,10 +26,11 @@ const ASSET_LABELS: Record<string, string> = {
 export default function Dashboard() {
   const { closedTrades, openPositions, stats, accounts, accountTransactions, riskRules } = useTradeStore()
   const isMobile = useIsMobile()
+  const [calendarDayDetail, setCalendarDayDetail] = useState<{ date: string; trades: import('../types/trade').ClosedTrade[] } | null>(null)
 
-  const equityCurve = buildEquityCurve(closedTrades)
-  const pnlByAsset = buildPnLByAssetClass(closedTrades)
-  const pnlByWeekday = buildPnLByWeekday(closedTrades)
+  const equityCurve = useMemo(() => buildEquityCurve(closedTrades), [closedTrades])
+  const pnlByAsset = useMemo(() => buildPnLByAssetClass(closedTrades), [closedTrades])
+  const pnlByWeekday = useMemo(() => buildPnLByWeekday(closedTrades), [closedTrades])
 
   // Compute overall return rate
   const totalCapital = accounts.reduce((s, acc) => {
@@ -45,7 +48,16 @@ export default function Dashboard() {
   const todayPnl = closedTrades.filter(t => t.closed_at.slice(0, 10) === today).reduce((s, t) => s + t.net_pnl, 0)
   const currentMonth = new Date().toISOString().slice(0, 7)
   const monthPnl = closedTrades.filter(t => t.closed_at.slice(0, 7) === currentMonth).reduce((s, t) => s + t.net_pnl, 0)
+  const weekStart = (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10) })()
+  const weekPnl = closedTrades.filter(t => t.closed_at.slice(0, 10) >= weekStart).reduce((s, t) => s + t.net_pnl, 0)
+  // Consecutive losses: count from most recent backward
+  const recentSorted = [...closedTrades].sort((a, b) => new Date(b.closed_at).getTime() - new Date(a.closed_at).getTime())
+  let consecutiveLosses = 0
+  for (const t of recentSorted) { if (t.net_pnl < 0) consecutiveLosses++; else break }
+
   const dailyLossAlert = riskRules.maxDailyLoss && todayPnl <= -riskRules.maxDailyLoss
+  const weeklyLossAlert = riskRules.maxWeeklyLoss && weekPnl <= -riskRules.maxWeeklyLoss
+  const consecutiveLossAlert = riskRules.maxConsecutiveLosses && consecutiveLosses >= riskRules.maxConsecutiveLosses
   const monthlyTargetHit = riskRules.monthlyTarget && monthPnl >= riskRules.monthlyTarget
 
   const pieData = Object.entries(pnlByAsset).map(([k, v]) => ({
@@ -97,6 +109,36 @@ export default function Dashboard() {
             <span style={{ fontSize: 14, fontWeight: 600, color: '#ef4444' }}>已触发单日最大亏损限制</span>
             <span style={{ fontSize: 13, color: '#8892a4', marginLeft: 8 }}>
               今日亏损 {formatCurrency(Math.abs(todayPnl))} · 限额 {formatCurrency(riskRules.maxDailyLoss!)}，建议停止交易
+            </span>
+          </div>
+        </div>
+      )}
+      {weeklyLossAlert && (
+        <div style={{
+          background: '#ef444415', border: '1px solid #ef444440', borderLeft: '4px solid #ef4444',
+          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <AlertTriangle size={16} color="#ef4444" />
+          <div>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#ef4444' }}>已触发本周最大亏损限制</span>
+            <span style={{ fontSize: 13, color: '#8892a4', marginLeft: 8 }}>
+              本周亏损 {formatCurrency(Math.abs(weekPnl))} · 限额 {formatCurrency(riskRules.maxWeeklyLoss!)}，建议暂停交易
+            </span>
+          </div>
+        </div>
+      )}
+      {consecutiveLossAlert && (
+        <div style={{
+          background: '#f97316' + '15', border: '1px solid ' + '#f97316' + '40', borderLeft: '4px solid #f97316',
+          borderRadius: 10, padding: '10px 16px', marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <AlertTriangle size={16} color="#f97316" />
+          <div>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#f97316' }}>已触发连续亏损限制</span>
+            <span style={{ fontSize: 13, color: '#8892a4', marginLeft: 8 }}>
+              连续亏损 {consecutiveLosses} 笔 · 限额 {riskRules.maxConsecutiveLosses} 笔，建议冷静复盘再入场
             </span>
           </div>
         </div>
@@ -297,6 +339,68 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Trade Calendar Heatmap */}
+      {hasData && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{
+            background: 'linear-gradient(145deg, #1a1d27, #1d2136)',
+            border: '1px solid #2d3148',
+            borderTop: '2px solid #a78bfa',
+            borderRadius: 12, padding: '18px 20px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <div style={{ width: 3, height: 14, background: '#a78bfa', borderRadius: 2 }} />
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>交易日历</h3>
+              <span style={{ fontSize: 11, color: '#4a5268', marginLeft: 4 }}>悬停查看当日盈亏 · 点击查看明细</span>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <TradeCalendar
+                closedTrades={closedTrades}
+                months={isMobile ? 6 : 12}
+                onDayClick={(date, trades) =>
+                  setCalendarDayDetail(prev => prev?.date === date ? null : { date, trades })
+                }
+              />
+            </div>
+            {/* Day detail panel */}
+            {calendarDayDetail && (
+              <div style={{ marginTop: 14, background: '#161924', borderRadius: 10, padding: '12px 14px', border: '1px solid #2d3148' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+                    {calendarDayDetail.date} · {calendarDayDetail.trades.length} 笔交易
+                  </span>
+                  <button onClick={() => setCalendarDayDetail(null)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2 }}>
+                    <span style={{ fontSize: 16, lineHeight: 1 }}>×</span>
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {calendarDayDetail.trades.map(t => (
+                    <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, color: '#e2e8f0', minWidth: 60 }}>{t.symbol}</span>
+                        <span style={{ color: t.direction === 'long' ? '#22c55e' : '#f97316', fontSize: 11 }}>{t.direction === 'long' ? '多' : '空'}</span>
+                        <span style={{ color: '#4a5268' }}>{formatCurrency(t.open_price)} → {formatCurrency(t.close_price)}</span>
+                      </div>
+                      <span style={{ fontWeight: 600, color: t.net_pnl >= 0 ? '#22c55e' : '#ef4444' }}>
+                        {t.net_pnl >= 0 ? '+' : ''}{formatCurrency(t.net_pnl)}
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid #2d3148', marginTop: 4, paddingTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: '#8892a4' }}>当日合计</span>
+                    {(() => {
+                      const sum = calendarDayDetail.trades.reduce((s, t) => s + t.net_pnl, 0)
+                      return <span style={{ fontWeight: 700, color: sum >= 0 ? '#22c55e' : '#ef4444' }}>{sum >= 0 ? '+' : ''}{formatCurrency(sum)}</span>
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -19,10 +19,35 @@ const NAV_ITEMS = [
 ] as const
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { view, setView, accounts, selectedAccount, setSelectedAccount, addAccount, deleteAccount } = useTradeStore()
+  const { view, setView, accounts, selectedAccount, setSelectedAccount, addAccount, deleteAccount, closedTrades, riskRules } = useTradeStore()
   const { user, profile } = useAuthStore()
   const displayName = profile?.nickname || user?.email?.split('@')[0] || ''
   const isMobile = useIsMobile()
+
+  // Risk badge computation
+  const today = new Date().toISOString().slice(0, 10)
+  const todayPnl = closedTrades.filter(t => t.closed_at.slice(0, 10) === today).reduce((s, t) => s + t.net_pnl, 0)
+  const weekStart = (() => {
+    const d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.toISOString().slice(0, 10)
+  })()
+  const weekPnl = closedTrades.filter(t => t.closed_at.slice(0, 10) >= weekStart).reduce((s, t) => s + t.net_pnl, 0)
+
+  type RiskLevel = 'ok' | 'warning' | 'danger'
+  let riskLevel: RiskLevel = 'ok'
+  let riskLabel = ''
+  if (riskRules.maxDailyLoss && todayPnl <= -riskRules.maxDailyLoss) {
+    riskLevel = 'danger'; riskLabel = '单日亏损触发'
+  } else if (riskRules.maxDailyLoss && todayPnl <= -(riskRules.maxDailyLoss * 0.8)) {
+    riskLevel = 'warning'; riskLabel = '接近单日限额'
+  } else if (riskRules.monthlyTarget) {
+    const currentMonth = new Date().toISOString().slice(0, 7)
+    const monthPnl = closedTrades.filter(t => t.closed_at.slice(0, 7) === currentMonth).reduce((s, t) => s + t.net_pnl, 0)
+    if (monthPnl <= -(riskRules.monthlyTarget * 0.8)) {
+      riskLevel = 'warning'; riskLabel = '本月亏损偏高'
+    }
+  }
+  // suppress unused weekPnl warning — may be used in future rules
+  void weekPnl
 
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [newAccountName, setNewAccountName] = useState('')
@@ -61,6 +86,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#0f1117' }}>
+      <style>{`@keyframes riskPulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }`}</style>
       {/* Mobile overlay backdrop */}
       {isMobile && sidebarOpen && (
         <div onClick={closeSidebar} style={{
@@ -105,6 +131,18 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <div style={{ fontWeight: 800, fontSize: 16, color: '#e2e8f0', lineHeight: 1 }}>TradeInsight</div>
                 <div style={{ fontSize: 10, color: '#4a5268', marginTop: 2 }}>交易分析平台</div>
               </div>
+              {riskLevel !== 'ok' && (
+                <div style={{
+                  padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                  background: riskLevel === 'danger' ? '#ef444420' : '#f59e0b20',
+                  border: `1px solid ${riskLevel === 'danger' ? '#ef444450' : '#f59e0b50'}`,
+                  color: riskLevel === 'danger' ? '#f87171' : '#fbbf24',
+                  animation: riskLevel === 'danger' ? 'riskPulse 1.5s ease-in-out infinite' : 'none',
+                  whiteSpace: 'nowrap' as const,
+                }}>
+                  {riskLevel === 'danger' ? '⚠' : '!'} {riskLabel}
+                </div>
+              )}
             </div>
             {isMobile && (
               <button onClick={closeSidebar} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8892a4', padding: 4 }}>
@@ -381,6 +419,17 @@ export default function Layout({ children }: { children: ReactNode }) {
                 fontSize: 13, fontWeight: 800, color: '#fff',
               }}>T</div>
               <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>{currentLabel}</span>
+              {riskLevel !== 'ok' && (
+                <div style={{
+                  padding: '1px 6px', borderRadius: 20, fontSize: 9, fontWeight: 700,
+                  background: riskLevel === 'danger' ? '#ef444420' : '#f59e0b20',
+                  border: `1px solid ${riskLevel === 'danger' ? '#ef444450' : '#f59e0b50'}`,
+                  color: riskLevel === 'danger' ? '#f87171' : '#fbbf24',
+                  animation: riskLevel === 'danger' ? 'riskPulse 1.5s ease-in-out infinite' : 'none',
+                }}>
+                  {riskLevel === 'danger' ? '⚠' : '!'}
+                </div>
+              )}
             </div>
             <button onClick={() => setShowNotifications((v) => !v)} style={{
               background: 'none', border: 'none', cursor: 'pointer', color: '#8892a4', padding: 4, position: 'relative',

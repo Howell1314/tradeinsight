@@ -33,6 +33,25 @@ export function formatNumber(value: number, decimals = 2): string {
 }
 
 // Match open/close trades using FIFO to create ClosedTrades and open Positions
+function calcR(
+  direction: 'long' | 'short',
+  openTrade: Trade,
+  netPnl: number,
+  qty: number,
+  multiplier: number,
+): { initial_risk?: number; actual_r?: number } {
+  const stop = openTrade.planned_stop
+  if (stop == null || stop <= 0) return {}
+  let initial_risk: number
+  if (direction === 'long') {
+    initial_risk = (openTrade.price - stop) * qty * multiplier
+  } else {
+    initial_risk = (stop - openTrade.price) * qty * multiplier
+  }
+  if (initial_risk <= 0) return {}
+  return { initial_risk, actual_r: netPnl / initial_risk }
+}
+
 export function processTradesIntoPositions(
   trades: Trade[],
 ): { closedTrades: ClosedTrade[]; openPositions: Position[] } {
@@ -77,6 +96,7 @@ export function processTradesIntoPositions(
           const total_commission =
             openShort.trade.commission * (matchQty / openShort.trade.quantity) +
             trade.commission * (matchQty / trade.quantity)
+          const shortNetPnl = gross_pnl - total_commission
           closedTrades.push({
             id: generateId(),
             symbol,
@@ -89,7 +109,7 @@ export function processTradesIntoPositions(
             close_price: trade.price,
             quantity: matchQty,
             gross_pnl,
-            net_pnl: gross_pnl - total_commission,
+            net_pnl: shortNetPnl,
             commission: total_commission,
             fees: 0,
             opened_at: openShort.trade.traded_at,
@@ -105,6 +125,7 @@ export function processTradesIntoPositions(
             strategy_tags: [...openShort.trade.strategy_tags, ...trade.strategy_tags].filter(
               (v, i, a) => a.indexOf(v) === i,
             ),
+            ...calcR('short', openShort.trade, shortNetPnl, matchQty, multiplier),
           })
           openShort.remaining -= matchQty
           remaining -= matchQty
@@ -124,6 +145,7 @@ export function processTradesIntoPositions(
           const total_commission =
             openLong.trade.commission * (matchQty / openLong.trade.quantity) +
             trade.commission * (matchQty / trade.quantity)
+          const longNetPnl = gross_pnl - total_commission
           closedTrades.push({
             id: generateId(),
             symbol,
@@ -136,7 +158,7 @@ export function processTradesIntoPositions(
             close_price: trade.price,
             quantity: matchQty,
             gross_pnl,
-            net_pnl: gross_pnl - total_commission,
+            net_pnl: longNetPnl,
             commission: total_commission,
             fees: 0,
             opened_at: openLong.trade.traded_at,
@@ -152,6 +174,7 @@ export function processTradesIntoPositions(
             strategy_tags: [...openLong.trade.strategy_tags, ...trade.strategy_tags].filter(
               (v, i, a) => a.indexOf(v) === i,
             ),
+            ...calcR('long', openLong.trade, longNetPnl, matchQty, multiplier),
           })
           openLong.remaining -= matchQty
           remaining -= matchQty
@@ -364,4 +387,142 @@ export function buildPnLByWeekday(closedTrades: ClosedTrade[]): { day: string; p
     data[d].count++
   }
   return days.map((day, i) => ({ day, ...data[i] }))
+}
+
+export interface StrategyStats {
+  strategy: string
+  total_pnl: number
+  win_rate: number
+  risk_reward: number
+  expectancy: number
+  total_trades: number
+  winning_trades: number
+}
+
+export function buildStatsByStrategy(closedTrades: ClosedTrade[]): StrategyStats[] {
+  const map: Record<string, ClosedTrade[]> = {}
+  for (const t of closedTrades) {
+    const tags = t.strategy_tags.length > 0 ? t.strategy_tags : ['（无标签）']
+    for (const tag of tags) {
+      if (!map[tag]) map[tag] = []
+      map[tag].push(t)
+    }
+  }
+  return Object.entries(map)
+    .map(([strategy, trades]) => {
+      const winners = trades.filter(t => t.net_pnl > 0)
+      const losers = trades.filter(t => t.net_pnl < 0)
+      const avg_win = winners.length ? winners.reduce((s, t) => s + t.net_pnl, 0) / winners.length : 0
+      const avg_loss = losers.length ? Math.abs(losers.reduce((s, t) => s + t.net_pnl, 0)) / losers.length : 0
+      const win_rate = trades.length ? winners.length / trades.length : 0
+      const risk_reward = avg_loss > 0 ? avg_win / avg_loss : avg_win > 0 ? Infinity : 0
+      const expectancy = win_rate * avg_win - (1 - win_rate) * avg_loss
+      return {
+        strategy,
+        total_pnl: trades.reduce((s, t) => s + t.net_pnl, 0),
+        win_rate,
+        risk_reward,
+        expectancy,
+        total_trades: trades.length,
+        winning_trades: winners.length,
+      }
+    })
+    .sort((a, b) => Math.abs(b.total_pnl) - Math.abs(a.total_pnl))
+}
+
+export function buildPnLByStrategyByMonth(
+  closedTrades: ClosedTrade[],
+): { month: string; [strategy: string]: number | string }[] {
+  // Collect all unique strategies and months
+  const strategies = new Set<string>()
+  const monthMap: Record<string, Record<string, number>> = {}
+
+  for (const t of closedTrades) {
+    const month = t.closed_at.slice(0, 7)
+    const tags = t.strategy_tags.length > 0 ? t.strategy_tags : ['（无标签）']
+    if (!monthMap[month]) monthMap[month] = {}
+    for (const tag of tags) {
+      strategies.add(tag)
+      monthMap[month][tag] = (monthMap[month][tag] || 0) + t.net_pnl
+    }
+  }
+
+  return Object.entries(monthMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, byStrategy]) => ({ month, ...byStrategy }))
+}
+
+export function buildRMultipleStats(closedTrades: ClosedTrade[]): {
+  distribution: { bucket: string; count: number; color: string }[]
+  avg_r: number
+  median_r: number
+  tradesWithR: number
+} {
+  const rValues = closedTrades
+    .filter(t => t.actual_r != null && isFinite(t.actual_r!))
+    .map(t => t.actual_r!)
+
+  if (rValues.length === 0) {
+    return { distribution: [], avg_r: 0, median_r: 0, tradesWithR: 0 }
+  }
+
+  // Build distribution buckets: <-2, -2~-1, -1~0, 0~1, 1~2, 2~3, >3
+  const buckets = [
+    { label: '<-2R', min: -Infinity, max: -2 },
+    { label: '-2~-1R', min: -2, max: -1 },
+    { label: '-1~0R', min: -1, max: 0 },
+    { label: '0~1R', min: 0, max: 1 },
+    { label: '1~2R', min: 1, max: 2 },
+    { label: '2~3R', min: 2, max: 3 },
+    { label: '>3R', min: 3, max: Infinity },
+  ]
+
+  const distribution = buckets.map(b => ({
+    bucket: b.label,
+    count: rValues.filter(r => r >= b.min && r < b.max).length,
+    color: b.min >= 0 ? '#22c55e' : '#ef4444',
+  }))
+
+  const sorted = [...rValues].sort((a, b) => a - b)
+  const avg_r = rValues.reduce((s, v) => s + v, 0) / rValues.length
+  const median_r = sorted.length % 2 === 0
+    ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+    : sorted[Math.floor(sorted.length / 2)]
+
+  return { distribution, avg_r, median_r, tradesWithR: rValues.length }
+}
+
+export function buildDrawdownCurve(closedTrades: ClosedTrade[]): { date: string; drawdown: number }[] {
+  const sorted = [...closedTrades].sort(
+    (a, b) => new Date(a.closed_at).getTime() - new Date(b.closed_at).getTime(),
+  )
+  let equity = 0
+  let peak = 0
+  return sorted.map(t => {
+    equity += t.net_pnl
+    if (equity > peak) peak = equity
+    const drawdown = peak > 0 ? -((peak - equity) / peak) * 100 : 0
+    return { date: t.closed_at.slice(0, 10), drawdown: parseFloat(drawdown.toFixed(2)) }
+  })
+}
+
+export function buildPnLByEmotion(closedTrades: ClosedTrade[]): { emotion: string; avg_pnl: number; count: number; total_pnl: number }[] {
+  const EMOTION_LABELS: Record<string, string> = {
+    calm: '冷静', confident: '自信', hesitant: '犹豫', impulsive: '冲动',
+  }
+  const map: Record<string, { sum: number; count: number }> = {}
+  for (const t of closedTrades) {
+    const rawEmotion = (t.open_trades[0]?.emotion) ?? null
+    if (!rawEmotion) continue
+    const emotion = EMOTION_LABELS[rawEmotion] ?? rawEmotion
+    if (!map[emotion]) map[emotion] = { sum: 0, count: 0 }
+    map[emotion].sum += t.net_pnl
+    map[emotion].count++
+  }
+  return Object.entries(map).map(([emotion, { sum, count }]) => ({
+    emotion,
+    avg_pnl: count > 0 ? sum / count : 0,
+    total_pnl: sum,
+    count,
+  }))
 }

@@ -102,6 +102,8 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
           margin_rate: String((editTrade.metadata as Record<string, unknown>)?.margin_rate ?? ''),
           contract_month: String((editTrade.metadata as Record<string, unknown>)?.contract_month ?? ''),
           multiplier: String((editTrade.metadata as Record<string, unknown>)?.multiplier ?? ''),
+          planned_stop: editTrade.planned_stop != null ? String(editTrade.planned_stop) : '',
+          planned_target: editTrade.planned_target != null ? String(editTrade.planned_target) : '',
         }
       : {
           account_id: selectedAccount ?? accounts[0]?.id ?? 'default',
@@ -129,6 +131,8 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
           margin_rate: '',
           contract_month: '',
           multiplier: '',
+          planned_stop: '',
+          planned_target: '',
         }
   )
 
@@ -158,6 +162,8 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
     margin_rate: '',
     contract_month: '',
     multiplier: '',
+    planned_stop: '',
+    planned_target: '',
   })
 
   useEffect(() => {
@@ -189,6 +195,8 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
         contract_month: String(meta.contract_month ?? ''),
         multiplier: String(meta.multiplier ?? ''),
         contract_multiplier: String(meta.contract_multiplier ?? (editTrade.asset_class === 'option' ? '100' : '1')),
+        planned_stop: editTrade.planned_stop != null ? String(editTrade.planned_stop) : '',
+        planned_target: editTrade.planned_target != null ? String(editTrade.planned_target) : '',
       })
     } else {
       setForm(blankForm())
@@ -207,6 +215,25 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
       }
       return next
     })
+  }
+
+  // Symbol history suggestions
+  const symbolHistory: string[] = (() => {
+    try { return JSON.parse(localStorage.getItem('tradeinsight-symbol-history') || '[]') } catch { return [] }
+  })()
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const filteredSuggestions = form.symbol.length > 0
+    ? symbolHistory.filter(s => s.startsWith(form.symbol.toUpperCase()) && s !== form.symbol.toUpperCase())
+    : symbolHistory.slice(0, 8)
+
+  const saveSymbolHistory = (symbol: string) => {
+    const upper = symbol.toUpperCase().trim()
+    if (!upper) return
+    const prev: string[] = (() => {
+      try { return JSON.parse(localStorage.getItem('tradeinsight-symbol-history') || '[]') } catch { return [] }
+    })()
+    const updated = [upper, ...prev.filter(s => s !== upper)].slice(0, 10)
+    localStorage.setItem('tradeinsight-symbol-history', JSON.stringify(updated))
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -255,12 +282,15 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
       strategy_tags: form.strategy_tags.split(',').map((s) => s.trim()).filter(Boolean),
       notes: form.notes,
       emotion: form.emotion || undefined,
+      planned_stop: parseFloat(form.planned_stop) > 0 ? parseFloat(form.planned_stop) : undefined,
+      planned_target: parseFloat(form.planned_target) > 0 ? parseFloat(form.planned_target) : undefined,
       metadata,
       created_at: editTrade?.created_at || new Date().toISOString(),
     }
 
     if (editTrade) {
       updateTrade(editTrade.id, trade)
+      saveSymbolHistory(trade.symbol)
       onClose()
     } else {
       const error = addTrade(trade)
@@ -268,6 +298,7 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
         setValidationError(error)
         return
       }
+      saveSymbolHistory(trade.symbol)
       onClose()
     }
   }
@@ -328,10 +359,35 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
             {/* Symbol */}
             {field(<>
               {label('标的代码')}
-              <input value={form.symbol}
-                onChange={(e) => set('symbol', e.target.value.slice(0, 30))}
-                placeholder={form.asset_class === 'option' ? 'AAPL' : form.asset_class === 'crypto' ? 'BTC/USDT' : 'AAPL'}
-                maxLength={30} style={inp()} required />
+              <div style={{ position: 'relative' }}>
+                <input value={form.symbol}
+                  onChange={(e) => { set('symbol', e.target.value.slice(0, 30)); setShowSuggestions(true) }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  placeholder={form.asset_class === 'option' ? 'AAPL' : form.asset_class === 'crypto' ? 'BTC/USDT' : 'AAPL'}
+                  maxLength={30} style={inp()} required />
+                {showSuggestions && filteredSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                    background: '#1e2236', border: '1px solid #2d3148', borderRadius: 8,
+                    marginTop: 2, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  }}>
+                    {filteredSuggestions.map((s) => (
+                      <button key={s} type="button"
+                        onMouseDown={() => { set('symbol', s); setShowSuggestions(false) }}
+                        style={{
+                          display: 'block', width: '100%', textAlign: 'left',
+                          padding: '7px 12px', background: 'none', border: 'none',
+                          color: '#e2e8f0', fontSize: 13, cursor: 'pointer',
+                          borderBottom: '1px solid #2d3148',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = '#22263a')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                      >{s}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </>)}
 
             {/* Direction */}
@@ -490,6 +546,48 @@ export default function AddTradeModal({ onClose, editTrade }: Props) {
                   onChange={(e) => set('margin_rate', e.target.value)} placeholder="5" style={inp()} />
               </>, 2)}
             </>)}
+
+            {/* Planned stop / target (R-Multiple) */}
+            {field(<>
+              {label('计划止损价（可选）')}
+              <input type="number" step="any" value={form.planned_stop}
+                onChange={(e) => set('planned_stop', e.target.value)}
+                placeholder="入场前设定止损位" style={inp()} />
+            </>)}
+            {field(<>
+              {label('计划目标价（可选）')}
+              <input type="number" step="any" value={form.planned_target}
+                onChange={(e) => set('planned_target', e.target.value)}
+                placeholder="入场前设定目标价" style={inp()} />
+            </>)}
+            {/* Risk preview */}
+            {parseFloat(form.planned_stop) > 0 && parseFloat(form.price) > 0 && parseFloat(form.quantity) > 0 && (
+              <div style={{
+                gridColumn: '1 / -1',
+                background: '#f59e0b10', border: '1px solid #f59e0b30',
+                borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#f59e0b',
+                display: 'flex', gap: 16, flexWrap: 'wrap' as const,
+              }}>
+                <span>单笔风险：<strong>
+                  {Math.abs(parseFloat(form.price) - parseFloat(form.planned_stop))
+                    * parseFloat(form.quantity)
+                    * (parseFloat(form.multiplier) || parseFloat(form.contract_multiplier) || 1)
+                    > 0
+                    ? '$' + (Math.abs(parseFloat(form.price) - parseFloat(form.planned_stop))
+                      * parseFloat(form.quantity)
+                      * (parseFloat(form.multiplier) || parseFloat(form.contract_multiplier) || 1)
+                    ).toFixed(2)
+                    : '--'}
+                </strong></span>
+                {parseFloat(form.planned_target) > 0 && (
+                  <span>计划盈亏比：<strong>
+                    {(Math.abs(parseFloat(form.planned_target) - parseFloat(form.price))
+                      / Math.abs(parseFloat(form.price) - parseFloat(form.planned_stop))
+                    ).toFixed(2)}R
+                  </strong></span>
+                )}
+              </div>
+            )}
 
             {/* Strategy tags */}
             {field(<>

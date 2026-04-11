@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTradeStore } from '../store/useTradeStore'
+import type { ClosedTrade } from '../types/trade'
+import TradeCalendar from '../components/TradeCalendar'
 import {
   buildEquityCurve, buildPnLBySymbol, buildPnLByAssetClass,
   buildPnLByMonth, buildPnLByWeekday, buildWinRateByMonth, buildPnLByQuarter,
+  buildStatsByStrategy, buildPnLByStrategyByMonth, buildDrawdownCurve, buildPnLByEmotion, buildRMultipleStats,
   computeStats, formatCurrency, formatPercent, formatNumber,
 } from '../utils/calculations'
 import {
@@ -21,31 +24,87 @@ const ASSET_LABELS: Record<string, string> = {
   etf: 'ETF', cfd: 'CFD', futures: '期货',
 }
 
-type Tab = 'overview' | 'symbols' | 'time' | 'risk'
+const EMOTION_COLORS: Record<string, string> = {
+  '冷静': '#22c55e', '自信': '#3b82f6', '犹豫': '#eab308', '冲动': '#ef4444',
+}
+
+// Palette for multi-strategy lines
+const STRATEGY_COLORS = ['#3b82f6', '#f59e0b', '#8b5cf6', '#22c55e', '#ec4899', '#f97316', '#06b6d4', '#a78bfa']
+
+type Tab = 'overview' | 'symbols' | 'time' | 'risk' | 'strategy'
 
 export default function Analytics() {
   const { closedTrades } = useTradeStore()
   const [tab, setTab] = useState<Tab>('overview')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
-  const equityCurve = buildEquityCurve(closedTrades)
-  const pnlBySymbol = buildPnLBySymbol(closedTrades).slice(0, 15)
-  const pnlByAsset = buildPnLByAssetClass(closedTrades)
-  const pnlByMonth = buildPnLByMonth(closedTrades)
-  const pnlByWeekday = buildPnLByWeekday(closedTrades)
-  const winRateByMonth = buildWinRateByMonth(closedTrades)
-  const pnlByQuarter = buildPnLByQuarter(closedTrades)
-  const stats = computeStats(closedTrades)
+  const equityCurve = useMemo(() => buildEquityCurve(closedTrades), [closedTrades])
+  const pnlBySymbol = useMemo(() => buildPnLBySymbol(closedTrades).slice(0, 15), [closedTrades])
+  const pnlByAsset = useMemo(() => buildPnLByAssetClass(closedTrades), [closedTrades])
+  const pnlByMonth = useMemo(() => buildPnLByMonth(closedTrades), [closedTrades])
+  const pnlByWeekday = useMemo(() => buildPnLByWeekday(closedTrades), [closedTrades])
+  const winRateByMonth = useMemo(() => buildWinRateByMonth(closedTrades), [closedTrades])
+  const pnlByQuarter = useMemo(() => buildPnLByQuarter(closedTrades), [closedTrades])
+  const stats = useMemo(() => computeStats(closedTrades), [closedTrades])
+  const strategyStats = useMemo(() => buildStatsByStrategy(closedTrades), [closedTrades])
+  const strategyByMonth = useMemo(() => buildPnLByStrategyByMonth(closedTrades), [closedTrades])
+  const drawdownCurve = useMemo(() => buildDrawdownCurve(closedTrades), [closedTrades])
+  const emotionData = useMemo(() => buildPnLByEmotion(closedTrades), [closedTrades])
+  const rMultipleStats = useMemo(() => buildRMultipleStats(closedTrades), [closedTrades])
 
-  const monthData = Object.entries(pnlByMonth)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([month, pnl]) => ({ month, pnl }))
+  const monthData = useMemo(() =>
+    Object.entries(pnlByMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, pnl]) => ({ month, pnl })),
+    [pnlByMonth])
+
+  // All unique strategy names for the monthly trend chart
+  const allStrategies = useMemo(() =>
+    [...new Set(closedTrades.flatMap(t => t.strategy_tags.length > 0 ? t.strategy_tags : ['（无标签）']))],
+    [closedTrades])
+
+  // Mistake tag cost analysis: read journal from localStorage, join with closedTrades by date
+  const mistakeCostData = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('tradeinsight-journal')
+      const entries: Array<{ date: string; tags: string[] }> = JSON.parse(raw || '[]')
+      if (!Array.isArray(entries)) return []
+
+      // Build a map: date → mistake tags
+      const dateTagMap: Record<string, string[]> = {}
+      for (const e of entries) {
+        if (e.date && Array.isArray(e.tags) && e.tags.length > 0) {
+          dateTagMap[e.date] = e.tags
+        }
+      }
+
+      // Aggregate loss by mistake tag using closedTrades
+      const tagLoss: Record<string, { loss: number; count: number }> = {}
+      for (const t of closedTrades as ClosedTrade[]) {
+        const date = t.closed_at.slice(0, 10)
+        const tags = dateTagMap[date]
+        if (!tags) continue
+        for (const tag of tags) {
+          if (!tagLoss[tag]) tagLoss[tag] = { loss: 0, count: 0 }
+          tagLoss[tag].loss += t.net_pnl  // keep sign — negative = loss
+          tagLoss[tag].count++
+        }
+      }
+
+      return Object.entries(tagLoss)
+        .map(([tag, { loss, count }]) => ({ tag, loss, count }))
+        .sort((a, b) => a.loss - b.loss)  // worst first
+    } catch {
+      return []
+    }
+  }, [closedTrades])
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview', label: '综合分析' },
     { id: 'symbols', label: '标的分析' },
     { id: 'time', label: '时间分析' },
     { id: 'risk', label: '风险指标' },
+    { id: 'strategy', label: '策略分析' },
   ]
 
   const hasData = closedTrades.length > 0
@@ -246,6 +305,13 @@ export default function Analytics() {
 
       {hasData && tab === 'time' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Calendar heatmap */}
+          <Card title="交易日历" hint="悬停查看盈亏 · 点击展开当日明细">
+            <div style={{ overflowX: 'auto' }}>
+              <TradeCalendar closedTrades={closedTrades} months={12} />
+            </div>
+          </Card>
+
           {/* Monthly P&L */}
           <Card title="月度盈亏">
             {monthData.length > 0 ? (
@@ -378,10 +444,119 @@ export default function Analytics() {
             ))}
           </div>
 
-          {/* Drawdown visualization */}
+          {/* Drawdown curve */}
+          <Card title="回撤曲线" hint="权益相对历史峰值的跌幅百分比">
+            {drawdownCurve.length > 1 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={drawdownCurve}>
+                  <defs>
+                    <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" />
+                  <XAxis dataKey="date" tick={{ fill: '#8892a4', fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false} axisLine={false}
+                    tickFormatter={(v) => `${v.toFixed(1)}%`} domain={['auto', 0]} />
+                  <Tooltip contentStyle={{ background: '#22263a', border: '1px solid #2d3148', borderRadius: 8 }}
+                    formatter={(v) => [`${(v as number).toFixed(2)}%`, '回撤']} />
+                  <ReferenceLine y={0} stroke="#2d3148" />
+                  <Area type="monotone" dataKey="drawdown" stroke="#ef4444" fill="url(#ddGrad)" strokeWidth={1.5} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : <EmptyChart />}
+          </Card>
+
+          {/* R-Multiple distribution */}
+          {rMultipleStats.tradesWithR > 0 && (
+            <Card title="R 倍数分布" hint="实际盈亏 / 初始风险（1R = 止损距离），衡量交易纪律执行质量">
+              <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' as const }}>
+                {[
+                  { label: '平均 R', value: `${rMultipleStats.avg_r.toFixed(2)}R`, color: rMultipleStats.avg_r >= 1 ? '#22c55e' : '#ef4444' },
+                  { label: '中位数 R', value: `${rMultipleStats.median_r.toFixed(2)}R`, color: '#8892a4' },
+                  { label: '有止损交易', value: `${rMultipleStats.tradesWithR} 笔`, color: '#6b7280' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
+                    <div style={{ fontSize: 11, color: '#4a5268', marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={rMultipleStats.distribution} barSize={36}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" vertical={false} />
+                  <XAxis dataKey="bucket" tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background: '#22263a', border: '1px solid #2d3148', borderRadius: 8 }}
+                    formatter={(v) => [`${v} 笔`, 'R区间']} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {rMultipleStats.distribution.map((b, i) => (
+                      <Cell key={i} fill={b.color} fillOpacity={0.85} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
+
+          {/* Emotion vs PnL */}
+          {emotionData.length > 0 && (
+            <Card title="情绪 × 平均盈亏" hint="不同情绪状态下每笔交易的平均净盈亏">
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={emotionData} barSize={40}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" vertical={false} />
+                  <XAxis dataKey="emotion" tick={{ fill: '#8892a4', fontSize: 12 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false} axisLine={false}
+                    tickFormatter={(v) => `$${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v >= -1000 ? v : (v / 1000).toFixed(1) + 'k'}`} />
+                  <Tooltip contentStyle={{ background: '#22263a', border: '1px solid #2d3148', borderRadius: 8 }}
+                    formatter={(v, _n, props) => [
+                      `均盈亏 ${formatCurrency(v as number)}（${(props as { payload: { count: number } }).payload.count} 笔）`,
+                      '情绪',
+                    ]} />
+                  <ReferenceLine y={0} stroke="#3d4263" />
+                  <Bar dataKey="avg_pnl" radius={[4, 4, 0, 0]}>
+                    {emotionData.map((e, i) => (
+                      <Cell key={i} fill={EMOTION_COLORS[e.emotion] ?? '#8892a4'} fillOpacity={0.85} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
+
+          {/* Mistake tag cost analysis */}
+          {mistakeCostData.length > 0 && (
+            <Card title="行为成本分析" hint="各失误标签对应当日交易的盈亏总和（日志标注日 → 关联当日结算交易）">
+              <ResponsiveContainer width="100%" height={Math.max(180, mistakeCostData.length * 36 + 40)}>
+                <BarChart data={mistakeCostData} layout="vertical" margin={{ left: 10, right: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false}
+                    tickFormatter={(v) => `$${Math.abs(v) >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`} />
+                  <YAxis type="category" dataKey="tag" tick={{ fill: '#e2e8f0', fontSize: 12 }} tickLine={false} width={90} />
+                  <Tooltip contentStyle={{ background: '#22263a', border: '1px solid #2d3148', borderRadius: 8 }}
+                    formatter={(v, _n, props) => [
+                      `${formatCurrency(v as number)}（关联 ${(props as { payload: { count: number } }).payload.count} 笔交易）`,
+                      '盈亏合计',
+                    ]} />
+                  <ReferenceLine x={0} stroke="#2d3148" />
+                  <Bar dataKey="loss" radius={[0, 4, 4, 0]}>
+                    {mistakeCostData.map((e, i) => (
+                      <Cell key={i} fill={e.loss >= 0 ? '#22c55e' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ marginTop: 10, fontSize: 11, color: '#4a5268', lineHeight: 1.6 }}>
+                * 统计逻辑：若某日日志标注了失误标签，则该日所有已结算交易的盈亏计入对应标签的累计成本。
+              </div>
+            </Card>
+          )}
+
+          {/* Per-trade PnL distribution */}
           <Card title="逐笔盈亏分布">
             {(() => {
-              const data = closedTrades
+              const data = [...closedTrades]
                 .sort((a, b) => new Date(a.closed_at).getTime() - new Date(b.closed_at).getTime())
                 .map((t, i) => ({ index: i + 1, pnl: t.net_pnl, symbol: t.symbol }))
               return (
@@ -402,6 +577,139 @@ export default function Analytics() {
               )
             })()}
           </Card>
+        </div>
+      )}
+
+      {hasData && tab === 'strategy' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {strategyStats.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, color: '#4a5268', fontSize: 14 }}>
+              暂无策略标签数据，请在添加交易时填写「策略标签」字段
+            </div>
+          ) : (
+            <>
+              {/* Strategy PnL ranking */}
+              <Card title="策略盈亏排行">
+                <ResponsiveContainer width="100%" height={Math.max(200, strategyStats.length * 36 + 40)}>
+                  <BarChart data={strategyStats} layout="vertical" margin={{ left: 10, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false}
+                      tickFormatter={(v) => `$${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v <= -1000 ? (v / 1000).toFixed(1) + 'k' : v}`} />
+                    <YAxis type="category" dataKey="strategy" tick={{ fill: '#e2e8f0', fontSize: 12 }} tickLine={false} width={90} />
+                    <Tooltip contentStyle={{ background: '#22263a', border: '1px solid #2d3148', borderRadius: 8 }}
+                      formatter={(v) => [formatCurrency(v as number), '总盈亏']} />
+                    <ReferenceLine x={0} stroke="#2d3148" />
+                    <Bar dataKey="total_pnl" radius={[0, 4, 4, 0]}>
+                      {strategyStats.map((e, i) => (
+                        <Cell key={i} fill={e.total_pnl >= 0 ? '#22c55e' : '#ef4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+
+              {/* Strategy comparison table */}
+              <Card title="策略详细对比">
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #2d3148' }}>
+                        {['策略名称', '交易笔数', '胜率', '盈亏比', '期望值', '总盈亏'].map((h) => (
+                          <th key={h} style={{ padding: '8px 14px', textAlign: 'left', color: '#8892a4', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {strategyStats.map((s, i) => (
+                        <tr key={s.strategy} style={{ borderBottom: '1px solid #2d3148', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)' }}>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: STRATEGY_COLORS[i % STRATEGY_COLORS.length], display: 'inline-block' }} />
+                              <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{s.strategy}</span>
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 14px', color: '#8892a4' }}>{s.total_trades}</td>
+                          <td style={{ padding: '10px 14px', color: s.win_rate >= 0.5 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                            {formatPercent(s.win_rate * 100, 1)}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: s.risk_reward >= 1 ? '#22c55e' : '#ef4444' }}>
+                            {isFinite(s.risk_reward) ? formatNumber(s.risk_reward, 2) + 'x' : '∞'}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: s.expectancy >= 0 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                            {formatCurrency(s.expectancy)}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontWeight: 700, color: s.total_pnl >= 0 ? '#22c55e' : '#ef4444' }}>
+                            {s.total_pnl >= 0 ? '+' : ''}{formatCurrency(s.total_pnl)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              {/* Strategy monthly trend */}
+              {strategyByMonth.length > 1 && allStrategies.length > 0 && (
+                <Card title="策略月度盈亏趋势" hint="各策略随时间的盈亏表现">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={strategyByMonth}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2d3148" vertical={false} />
+                      <XAxis dataKey="month" tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false} />
+                      <YAxis tick={{ fill: '#8892a4', fontSize: 11 }} tickLine={false} axisLine={false}
+                        tickFormatter={(v) => `$${v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`} />
+                      <Tooltip contentStyle={{ background: '#22263a', border: '1px solid #2d3148', borderRadius: 8 }}
+                        formatter={(v) => [formatCurrency(v as number), '']} />
+                      <ReferenceLine y={0} stroke="#3d4263" strokeDasharray="4 4" />
+                      {allStrategies.slice(0, 8).map((strategy, i) => (
+                        <Line
+                          key={strategy}
+                          type="monotone"
+                          dataKey={strategy}
+                          stroke={STRATEGY_COLORS[i % STRATEGY_COLORS.length]}
+                          strokeWidth={2}
+                          dot={false}
+                          connectNulls
+                          name={strategy}
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                  {/* Legend */}
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10 }}>
+                    {allStrategies.slice(0, 8).map((strategy, i) => (
+                      <div key={strategy} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#8892a4' }}>
+                        <span style={{ width: 12, height: 3, background: STRATEGY_COLORS[i % STRATEGY_COLORS.length], borderRadius: 2, display: 'inline-block' }} />
+                        {strategy}
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* Strategy win-rate visual */}
+              <Card title="策略胜率 & 期望值对比">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {strategyStats.map((s, i) => {
+                    const color = STRATEGY_COLORS[i % STRATEGY_COLORS.length]
+                    return (
+                      <div key={s.strategy} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ width: 88, fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }} title={s.strategy}>{s.strategy}</span>
+                        <div style={{ flex: 1, height: 8, background: '#22263a', borderRadius: 4, overflow: 'hidden' }}>
+                          <div style={{ width: `${Math.min(s.win_rate * 100, 100)}%`, height: '100%', background: color, borderRadius: 4 }} />
+                        </div>
+                        <span style={{ width: 50, textAlign: 'right', fontSize: 12, color: s.win_rate >= 0.5 ? '#22c55e' : '#ef4444', fontWeight: 600 }}>
+                          {formatPercent(s.win_rate * 100, 1)}
+                        </span>
+                        <span style={{ width: 80, textAlign: 'right', fontSize: 12, color: s.expectancy >= 0 ? '#22c55e' : '#ef4444' }}>
+                          E={formatCurrency(s.expectancy)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Card>
+            </>
+          )}
         </div>
       )}
     </div>
