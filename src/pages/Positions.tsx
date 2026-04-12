@@ -27,6 +27,7 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(current))
   const [refreshing, setRefreshing] = useState(false)
+  const [fetchFailed, setFetchFailed] = useState(false)
 
   const commit = () => {
     const n = parseFloat(val)
@@ -35,10 +36,18 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
   }
 
   const refresh = async () => {
+    if (refreshing) return
     setRefreshing(true)
+    setFetchFailed(false)
     const price = await fetchPrice(symbol, assetClass)
     setRefreshing(false)
-    if (price != null) { onSave(price); setVal(String(price)) }
+    if (price != null) {
+      onSave(price)
+      setVal(String(price))
+    } else {
+      setFetchFailed(true)
+      setTimeout(() => setFetchFailed(false), 3000)
+    }
   }
 
   const age = priceAgeLabel(updatedAt)
@@ -67,21 +76,36 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span style={{ color: '#e2e8f0' }}>{formatCurrency(current)}</span>
+        {/* 点击价格文字即可刷新行情 */}
+        <span
+          onClick={refresh}
+          title="点击从行情接口刷新价格"
+          style={{
+            color: fetchFailed ? '#ef4444' : '#e2e8f0',
+            cursor: refreshing ? 'default' : 'pointer',
+            borderBottom: refreshing ? 'none' : '1px dashed #4a5268',
+          }}
+        >
+          {refreshing ? '刷新中…' : fetchFailed ? '获取失败' : formatCurrency(current)}
+        </span>
         <button onClick={refresh} disabled={refreshing} title="从行情接口刷新价格"
-          style={{ background: 'none', border: 'none', cursor: refreshing ? 'default' : 'pointer', color: refreshing ? '#3b82f6' : '#4a5268', padding: 2,
+          style={{ background: 'none', border: 'none', cursor: refreshing ? 'default' : 'pointer',
+            color: refreshing ? '#3b82f6' : '#6b7280', padding: 2,
             animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
-          <RefreshCw size={12} />
+          <RefreshCw size={13} />
         </button>
         <button
           onClick={() => { setVal(String(current)); setEditing(true) }}
           title="手动输入价格"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4a5268', padding: 2 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 2 }}
         >
-          <Edit2 size={12} />
+          <Edit2 size={13} />
         </button>
       </div>
-      {age && (
+      {fetchFailed && (
+        <span style={{ fontSize: 10, color: '#ef4444', lineHeight: 1 }}>行情接口无响应，可手动输入</span>
+      )}
+      {!fetchFailed && age && (
         <span style={{
           fontSize: 10, color: age.stale ? '#f59e0b' : '#6b7280',
           lineHeight: 1, letterSpacing: '0.02em',
