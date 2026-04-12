@@ -9,7 +9,7 @@ export const ASSET_COLORS: Record<string, string> = {
 
 export const ASSET_LABELS: Record<string, string> = {
   crypto: '数字货币',
-  equity: '美股个股',
+  equity: '股票',
   option: '期权',
   etf: 'ETF',
   cfd: 'CFD',

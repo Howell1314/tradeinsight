@@ -5,7 +5,7 @@ import { generateId } from '../utils/calculations'
 import { X } from 'lucide-react'
 
 const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
-  { value: 'equity', label: '美股个股' },
+  { value: 'equity', label: '股票' },
   { value: 'option', label: '美股期权' },
   { value: 'etf', label: 'ETF' },
   { value: 'crypto', label: '数字货币' },

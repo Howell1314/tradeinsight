@@ -43,8 +43,8 @@ async function downloadTemplate() {
 
   // Example rows
   const rows = [
-    ['AAPL', '买入', 100, 150.50, '2024-01-15 10:30:00', 1.00, '美股个股', 1, '', '示例买入'],
-    ['AAPL', '卖出', 100, 160.00, '2024-02-20 14:00:00', 1.00, '美股个股', 1, '', '示例卖出'],
+    ['AAPL', '买入', 100, 150.50, '2024-01-15 10:30:00', 1.00, '股票', 1, '', '示例买入'],
+    ['AAPL', '卖出', 100, 160.00, '2024-02-20 14:00:00', 1.00, '股票', 1, '', '示例卖出'],
     ['MU', '买入', 4, 11.50, '2024-04-09 14:40:00', 0, '期权', 100, '2024-05-17', '期权合约×100'],
     ['BTC', '买入', 0.5, 42000, '2024-03-01 09:00:00', 5.00, '数字货币', 1, '', ''],
   ]
@@ -67,7 +67,7 @@ async function downloadTemplate() {
     ws.getCell(`G${i}`).dataValidation = {
       type: 'list',
       allowBlank: true,
-      formulae: ['"美股个股,期权,ETF,数字货币,CFD,期货"'],
+      formulae: ['"股票,期权,ETF,数字货币,CFD,期货"'],
       showErrorMessage: true,
       errorTitle: '无效值',
       error: '请从下拉列表中选择品种类型',
@@ -86,7 +86,7 @@ async function downloadTemplate() {
 interface Props { onClose: () => void }
 
 const ASSET_CLASSES: { value: AssetClass; label: string }[] = [
-  { value: 'equity', label: '美股个股' },
+  { value: 'equity', label: '股票' },
   { value: 'option', label: '期权' },
   { value: 'etf', label: 'ETF' },
   { value: 'crypto', label: '数字货币' },
@@ -258,7 +258,7 @@ export default function CsvImportModal({ onClose }: Props) {
                   ['价格', '必填，单价'],
                   ['交易时间', '如 2024-01-15 10:30:00'],
                   ['佣金', '可选，默认 0'],
-                  ['品种类型', '美股个股 / 期权 / ETF / 数字货币 / CFD / 期货'],
+                  ['品种类型', '股票 / 期权 / ETF / 数字货币 / CFD / 期货'],
                   ['合约乘数', '可选，期权填100，期货按合约，默认1'],
                   ['到期日', '可选，期权到期日，如 2024-05-17'],
                   ['备注', '可选，备注信息'],
