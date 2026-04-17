@@ -34,33 +34,17 @@ async function fetchCryptoPrice(symbol: string): Promise<number | null> {
 
 async function fetchYahooPrice(symbol: string): Promise<number | null> {
   const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
-  const targetUrl = `https://query1.finance.yahoo.com${path}`
-  const direct2 = `https://query2.finance.yahoo.com${path}`
-
-  // Proxy variants — try multiple in case one is rate-limited or down
-  const proxy1 = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`
-  const proxy2 = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
-  const proxy3 = `https://corsproxy.io/?${encodeURIComponent(direct2)}`
-
-  const extractPrice = (data: unknown): number | null => {
+  const url = `https://query1.finance.yahoo.com${path}`
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
+    if (!res.ok) return null
+    const data = await res.json()
     const price = (data as { chart?: { result?: { meta?: { regularMarketPrice?: number } }[] } })
       ?.chart?.result?.[0]?.meta?.regularMarketPrice
     return price != null && !isNaN(price) ? price : null
+  } catch {
+    return null
   }
-
-  // Try endpoints in order; return on first success
-  for (const url of [targetUrl, direct2, proxy1, proxy2, proxy3]) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
-      if (!res.ok) continue
-      const data = await res.json()
-      const price = extractPrice(data)
-      if (price != null) return price
-    } catch {
-      // network error or timeout — try next endpoint
-    }
-  }
-  return null
 }
 
 /** Fetch prices for multiple positions in parallel, returning a map of symbol → price. */
