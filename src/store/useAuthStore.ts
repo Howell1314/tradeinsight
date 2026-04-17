@@ -76,7 +76,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       .from('profiles')
       .select('*')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
     if (data) set({ profile: data as Profile })
   },
 

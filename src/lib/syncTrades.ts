@@ -95,7 +95,7 @@ export async function loadRiskRules(userId: string): Promise<RiskRules | null> {
     .from('user_settings')
     .select('risk_rules')
     .eq('user_id', userId)
-    .single()
+    .maybeSingle()
   if (error || !data) return null
   return data.risk_rules as RiskRules
 }
