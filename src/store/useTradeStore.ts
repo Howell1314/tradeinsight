@@ -73,7 +73,7 @@ interface TradeStore {
   accounts: Account[]
   accountTransactions: AccountTransaction[]
   selectedAccount: string | null
-  view: 'dashboard' | 'trades' | 'positions' | 'analytics' | 'journal' | 'profile'
+  view: 'dashboard' | 'trades' | 'positions' | 'analytics' | 'journal' | 'profile' | 'chart'
   userId: string | null
   cloudSynced: boolean
   currentPrices: Record<string, number>     // key: "accountId::symbol"

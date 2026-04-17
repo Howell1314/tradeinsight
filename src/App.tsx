@@ -7,6 +7,7 @@ import Analytics from './pages/Analytics'
 import Journal from './pages/Journal'
 import AuthPage from './pages/AuthPage'
 import Profile from './pages/Profile'
+import { ChartPage } from './pages/ChartPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useTradeStore } from './store/useTradeStore'
 import { useAuthStore } from './store/useAuthStore'
@@ -65,6 +66,7 @@ export default function App() {
     analytics: <Analytics />,
     journal: <Journal />,
     profile: <Profile />,
+    chart: <ChartPage />,
   }
 
   return (
