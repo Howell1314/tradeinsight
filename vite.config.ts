@@ -15,7 +15,7 @@ export default defineConfig({
         "style-src 'self' 'unsafe-inline'",    // Tailwind/inline styles
         "img-src 'self' data: blob:",
         "font-src 'self'",
-        "connect-src 'self'",
+        "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
         "frame-ancestors 'none'",
       ].join('; '),
       'X-Content-Type-Options': 'nosniff',
