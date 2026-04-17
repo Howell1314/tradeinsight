@@ -51,3 +51,15 @@ export interface Profile {
   avatar_url: string
   updated_at: string
 }
+
+/** 类型化的 Edge Function 调用封装 */
+export async function invokeFn<TOut>(
+  name: string,
+  body: Record<string, unknown>,
+  opts?: { signal?: AbortSignal }
+): Promise<TOut> {
+  const { data, error } = await supabase.functions.invoke<TOut>(name, { body })
+  if (error) throw error
+  if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  return data as TOut
+}

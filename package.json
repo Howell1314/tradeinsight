@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "db:push": "supabase db push",
+    "fn:deploy:fetch-ohlc": "supabase functions deploy fetch-ohlc --no-verify-jwt",
+    "fn:deploy:run-backtest": "supabase functions deploy run-backtest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",
@@ -20,7 +24,9 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.8.1",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "klinecharts": "^9.8.10",
+    "idb-keyval": "^6.2.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
