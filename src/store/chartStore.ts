@@ -116,9 +116,13 @@ export const useChartStore = create<ChartState>()(
   )
 );
 
+// Stable fallbacks — must be module-level constants so React's useSyncExternalStore
+// sees the same reference every call and does not trigger infinite re-renders.
+const EMPTY_KLINES: KLine[] = [];
+
 /** 便捷 selector：当前 symbol+tf 的 klines */
 export const selectCurrentKLines = (s: ChartState) =>
-  s.klines[cacheKey(s.symbol, s.timeframe)] ?? [];
+  s.klines[cacheKey(s.symbol, s.timeframe)] ?? EMPTY_KLINES;
 
 export const selectCurrentLoading = (s: ChartState) =>
   s.loading[cacheKey(s.symbol, s.timeframe)] ?? false;
