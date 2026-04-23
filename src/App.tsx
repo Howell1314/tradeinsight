@@ -8,19 +8,29 @@ import Journal from './pages/Journal'
 import AuthPage from './pages/AuthPage'
 import Profile from './pages/Profile'
 import { ChartPage } from './pages/ChartPage'
+import PlansPage from './pages/PlansPage'
+import PlanDetailPage from './pages/PlanDetailPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useTradeStore } from './store/useTradeStore'
 import { useAuthStore } from './store/useAuthStore'
 import { useJournalStore } from './store/useJournalStore'
 
 export default function App() {
-  const { view, syncFromCloud, clearUserData, cloudSynced } = useTradeStore()
+  const {
+    view, syncFromCloud, clearUserData, cloudSynced,
+    syncPlansFromCloud, clearPlans, expirePlans,
+  } = useTradeStore()
   const { user, initialized, init } = useAuthStore()
   const { syncFromCloud: syncJournal, clearJournal } = useJournalStore()
   const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     init()
+  }, [])
+
+  // 启动时被动扫描一次过期 Plan（spec §6.2）
+  useEffect(() => {
+    expirePlans()
   }, [])
 
   // Sync cloud data when user changes.
@@ -30,14 +40,18 @@ export default function App() {
   useEffect(() => {
     if (!initialized) return
     if (user) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSyncing(true)
       Promise.all([
         syncFromCloud(user.id),
         syncJournal(user.id),
-      ]).finally(() => setSyncing(false))
+        syncPlansFromCloud(user.id),
+      ]).catch((e) => console.error('[sync] initial sync failed', e))
+        .finally(() => setSyncing(false))
     } else {
       clearUserData()
       clearJournal()
+      clearPlans()
     }
   }, [user?.id, initialized])
 
@@ -71,6 +85,8 @@ export default function App() {
     journal: <Journal />,
     profile: <Profile />,
     chart: <ChartPage />,
+    plans: <PlansPage />,
+    planDetail: <PlanDetailPage />,
   }
 
   return (

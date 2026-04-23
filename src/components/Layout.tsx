@@ -4,7 +4,7 @@ import { useTradeStore } from '../store/useTradeStore'
 import { useAuthStore } from '../store/useAuthStore'
 import {
   LayoutDashboard, TrendingUp, BookOpen, BarChart2, Briefcase,
-  Plus, Trash2, X, Check, UserCircle, Menu, Bell, LineChart,
+  Plus, Trash2, X, Check, UserCircle, Menu, Bell, LineChart, Target,
 } from 'lucide-react'
 import { generateId } from '../utils/calculations'
 import { useIsMobile } from '../hooks/useIsMobile'
@@ -12,6 +12,7 @@ import { useNotifications } from '../hooks/useNotifications'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: '仪表盘', icon: LayoutDashboard },
+  { id: 'plans', label: '交易计划', icon: Target },
   { id: 'trades', label: '交易记录', icon: TrendingUp },
   { id: 'positions', label: '持仓管理', icon: Briefcase },
   { id: 'analytics', label: '统计分析', icon: BarChart2 },

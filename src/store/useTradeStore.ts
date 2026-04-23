@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { Trade, Account, ClosedTrade, Position, AccountTransaction } from '../types/trade'
+import type { TradePlan, PlanStatus } from '../types/plan'
 import { processTradesIntoPositions, computeStats } from '../utils/calculations'
 import type { DashboardStats } from '../utils/calculations'
 import {
@@ -9,6 +10,8 @@ import {
   loadAccountTransactions, upsertAccountTransactions, deleteCloudAccountTransaction,
   loadRiskRules, upsertRiskRules,
 } from '../lib/syncTrades'
+import { loadCloudPlans, upsertPlan, deleteCloudPlan, mergePlans } from '../lib/syncPlans'
+import { isValidPlan } from '../utils/validatePlan'
 
 const VALID_ASSET_CLASSES = ['crypto', 'equity', 'option', 'etf', 'cfd', 'futures']
 const VALID_DIRECTIONS = ['buy', 'sell', 'short', 'cover']
@@ -73,12 +76,16 @@ interface TradeStore {
   accounts: Account[]
   accountTransactions: AccountTransaction[]
   selectedAccount: string | null
-  view: 'dashboard' | 'trades' | 'positions' | 'analytics' | 'journal' | 'profile' | 'chart'
+  view: 'dashboard' | 'trades' | 'positions' | 'analytics' | 'journal' | 'profile' | 'chart' | 'plans' | 'planDetail'
   userId: string | null
   cloudSynced: boolean
   currentPrices: Record<string, number>     // key: "accountId::symbol"
   currentPriceTimes: Record<string, number>  // key: "accountId::symbol" → epoch ms
   riskRules: RiskRules
+
+  // v2.4 Trade Plan
+  plans: TradePlan[]
+  currentPlanId: string | null
 
   // Derived
   closedTrades: ClosedTrade[]
@@ -104,6 +111,17 @@ interface TradeStore {
   syncFromCloud: (userId: string) => Promise<void>
   /** Called on logout: clears user data from store */
   clearUserData: () => void
+
+  // Plan actions (Phase 1)
+  addPlan: (plan: TradePlan) => void
+  updatePlan: (id: string, updates: Partial<TradePlan>) => void
+  cancelPlan: (id: string, reason: string) => void
+  deletePlan: (id: string) => void
+  expirePlans: () => void
+  setCurrentPlan: (id: string | null) => void
+  openPlanDetail: (id: string) => void
+  syncPlansFromCloud: (userId: string) => Promise<void>
+  clearPlans: () => void
 }
 
 function applyCurrentPrices(positions: Position[], currentPrices: Record<string, number>): Position[] {
@@ -171,6 +189,8 @@ export const useTradeStore = create<TradeStore>()(
       currentPrices: {},
       currentPriceTimes: {},
       riskRules: {},
+      plans: [],
+      currentPlanId: null,
       closedTrades: [],
       openPositions: [],
       stats: EMPTY_STATS,
@@ -370,6 +390,98 @@ export const useTradeStore = create<TradeStore>()(
           stats: EMPTY_STATS,
         })
       },
+
+      // ═══════════════════════════════════════════════════════
+      // v2.4 Trade Plan actions
+      // ═══════════════════════════════════════════════════════
+
+      addPlan: (plan) => {
+        set((s) => {
+          const plans = [...s.plans, plan]
+          if (s.userId) upsertPlan(s.userId, plan).catch((e) => console.error('[sync] addPlan failed', e))
+          return { plans }
+        })
+      },
+
+      updatePlan: (id, updates) => {
+        set((s) => {
+          const plans = s.plans.map((p) =>
+            p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p,
+          )
+          if (s.userId) {
+            const updated = plans.find((p) => p.id === id)
+            if (updated) upsertPlan(s.userId, updated).catch((e) => console.error('[sync] updatePlan failed', e))
+          }
+          return { plans }
+        })
+      },
+
+      cancelPlan: (id, reason) => {
+        set((s) => {
+          const plans = s.plans.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  status: 'cancelled' as PlanStatus,
+                  cancelled_reason: reason,
+                  updated_at: new Date().toISOString(),
+                }
+              : p,
+          )
+          if (s.userId) {
+            const updated = plans.find((p) => p.id === id)
+            if (updated) upsertPlan(s.userId, updated).catch((e) => console.error('[sync] cancelPlan failed', e))
+          }
+          return { plans }
+        })
+      },
+
+      deletePlan: (id) => {
+        set((s) => {
+          if (s.userId) deleteCloudPlan(s.userId, id).catch((e) => console.error('[sync] deletePlan failed', e))
+          return {
+            plans: s.plans.filter((p) => p.id !== id),
+            currentPlanId: s.currentPlanId === id ? null : s.currentPlanId,
+          }
+        })
+      },
+
+      expirePlans: () => {
+        set((s) => {
+          const today = new Date().toISOString().slice(0, 10)
+          const expirable: PlanStatus[] = ['draft', 'active']
+          let changed = false
+          const plans = s.plans.map((p) => {
+            if (expirable.includes(p.status) && p.effective_until < today) {
+              changed = true
+              const next: TradePlan = {
+                ...p,
+                status: 'expired',
+                updated_at: new Date().toISOString(),
+              }
+              if (s.userId) upsertPlan(s.userId, next).catch((e) => console.error('[sync] expirePlan failed', e))
+              return next
+            }
+            return p
+          })
+          return changed ? { plans } : {}
+        })
+      },
+
+      setCurrentPlan: (id) => set({ currentPlanId: id }),
+
+      openPlanDetail: (id) => set({ currentPlanId: id, view: 'planDetail' }),
+
+      syncPlansFromCloud: async (userId) => {
+        const cloud = await loadCloudPlans(userId)
+        if (!cloud) return
+        const valid = cloud.filter(isValidPlan)
+        const { plans: localPlans } = get()
+        const merged = mergePlans(localPlans, valid)
+        set({ plans: merged })
+      },
+
+      clearPlans: () => set({ plans: [], currentPlanId: null }),
     }),
     {
       name: 'tradeinsight-store',
@@ -381,6 +493,7 @@ export const useTradeStore = create<TradeStore>()(
         currentPrices: s.currentPrices,
         currentPriceTimes: s.currentPriceTimes,
         riskRules: s.riskRules,
+        plans: s.plans,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
@@ -391,6 +504,7 @@ export const useTradeStore = create<TradeStore>()(
           state.currentPrices = (state.currentPrices && typeof state.currentPrices === 'object') ? state.currentPrices : {}
           state.currentPriceTimes = (state.currentPriceTimes && typeof state.currentPriceTimes === 'object') ? state.currentPriceTimes : {}
           state.riskRules = (state.riskRules && typeof state.riskRules === 'object') ? state.riskRules : {}
+          state.plans = Array.isArray(state.plans) ? state.plans.filter(isValidPlan) : []
           if (!state.accounts.some((a) => a.id === 'default')) {
             state.accounts.unshift({ id: 'default', name: '默认账户', currency: 'USD' })
           }
