@@ -1,25 +1,24 @@
 import type { AssetClass } from '../types/trade'
+import { invokeFn } from './supabase'
 
 /** Fetch latest price for a symbol. Returns null on failure (silent degradation). */
 export async function fetchPrice(symbol: string, assetClass: AssetClass): Promise<number | null> {
   try {
-    if (assetClass === 'crypto') {
-      return await fetchCryptoPrice(symbol)
-    }
-    // equity, etf, option, cfd, futures — try Yahoo Finance
-    return await fetchYahooPrice(symbol)
+    if (assetClass === 'crypto') return await fetchCryptoPrice(symbol)
+    // Option / CFD / futures: no reliable public quote source — force manual input.
+    if (assetClass === 'option' || assetClass === 'cfd' || assetClass === 'futures') return null
+    // Equity / ETF via Supabase Edge Function proxy (bypasses CORS)
+    return await fetchEquityPrice(symbol)
   } catch {
     return null
   }
 }
 
 async function fetchCryptoPrice(symbol: string): Promise<number | null> {
-  // Normalize: BTC/USDT → BTCUSDT, BTC-USD → BTCUSDT, BTC → BTCUSDT
   const normalized = symbol
     .toUpperCase()
     .replace(/[-/]/, '')
     .replace(/USD$/, 'USDT')
-  // If it doesn't end in USDT already, append USDT
   const pair = normalized.endsWith('USDT') ? normalized : normalized + 'USDT'
 
   const res = await fetch(
@@ -32,16 +31,10 @@ async function fetchCryptoPrice(symbol: string): Promise<number | null> {
   return isNaN(price) ? null : price
 }
 
-async function fetchYahooPrice(symbol: string): Promise<number | null> {
-  const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
-  const url = `https://query1.finance.yahoo.com${path}`
+async function fetchEquityPrice(symbol: string): Promise<number | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
-    if (!res.ok) return null
-    const data = await res.json()
-    const price = (data as { chart?: { result?: { meta?: { regularMarketPrice?: number } }[] } })
-      ?.chart?.result?.[0]?.meta?.regularMarketPrice
-    return price != null && !isNaN(price) ? price : null
+    const data = await invokeFn<{ price: number | null }>('fetch-price', { symbol })
+    return data?.price ?? null
   } catch {
     return null
   }

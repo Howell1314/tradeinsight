@@ -15,7 +15,7 @@ export default defineConfig({
         "style-src 'self' 'unsafe-inline' https://*.tradingview.com",
         "img-src 'self' data: blob: https://*.tradingview.com https://*.tradingview-widget.com",
         "font-src 'self' data: https://*.tradingview.com",
-        "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.tradingview.com https://*.tradingview-widget.com",
+        "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.tradingview.com https://*.tradingview-widget.com https://api.binance.com",
         "frame-src https://*.tradingview.com https://*.tradingview-widget.com",
         "frame-ancestors 'none'",
       ].join('; '),
