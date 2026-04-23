@@ -183,7 +183,7 @@ export const useTradeStore = create<TradeStore>()(
         const stamped = { ...trade, updated_at: new Date().toISOString() }
         set((s) => {
           const trades = [...s.trades, stamped]
-          if (s.userId) void upsertTrade(s.userId, stamped)
+          if (s.userId) upsertTrade(s.userId, stamped).catch((e) => console.error('[sync] addTrade failed', e))
           return { trades, ...derive(trades, s.selectedAccount, s.currentPrices) }
         })
         return null

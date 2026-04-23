@@ -23,8 +23,12 @@ export default function App() {
     init()
   }, [])
 
-  // Sync cloud data when user changes
+  // Sync cloud data when user changes.
+  // Guard: do nothing until auth is initialized — user=null before init() resolves
+  // means "not yet loaded", not "logged out". Calling clearUserData() here would
+  // wipe localStorage-persisted trades before syncFromCloud() can merge them.
   useEffect(() => {
+    if (!initialized) return
     if (user) {
       setSyncing(true)
       Promise.all([
@@ -35,7 +39,7 @@ export default function App() {
       clearUserData()
       clearJournal()
     }
-  }, [user?.id])
+  }, [user?.id, initialized])
 
   if (!initialized || (user && syncing && !cloudSynced)) {
     return (
