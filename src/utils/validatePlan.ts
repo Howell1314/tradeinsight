@@ -10,6 +10,10 @@ import type {
   HotStockEntry,
   PlanCandidate,
   AssetSpecifics,
+  SentimentBucket,
+  PriceStructureSignal,
+  StrategyStructure,
+  StrategyStructureType,
 } from '../types/plan'
 
 const VALID_STATUS: PlanStatus[] = [
@@ -23,6 +27,23 @@ const VALID_FUND: FundAttribute[] = [
   'margin', 'principal', 'long_term_profit', 'extraordinary_profit',
   'medium_term_profit', 'short_term_profit', 'passive_profit',
   'secondary_profit', 'tertiary_profit', 'split_profit',
+]
+const VALID_SENTIMENT_BUCKET: SentimentBucket[] = [
+  'extreme_fear', 'fear', 'neutral', 'greed', 'extreme_greed',
+]
+const VALID_SIGNAL_TYPE: PriceStructureSignal['signal_type'][] = [
+  'resistance_break', 'support_hold', 'double_top', 'double_bottom', 'range_mid', 'other',
+]
+const VALID_SIGNAL_CONFIDENCE: PriceStructureSignal['confidence'][] = [
+  'strong', 'medium', 'weak',
+]
+const VALID_STRATEGY_STRUCTURE_TYPE: StrategyStructureType[] = [
+  'long_stock', 'long_call', 'long_put', 'short_put', 'short_call', 'covered_call',
+  'protective_put', 'risk_reversal', 'vertical_spread_bull', 'vertical_spread_bear',
+  'iron_condor', 'cfd_long', 'cfd_short', 'futures_long', 'futures_short', 'other',
+]
+const VALID_MATCH_SCORE: StrategyStructure['match_score'][] = [
+  'high', 'medium', 'low',
 ]
 
 const MAX_HOT_SECTORS = 5
@@ -38,6 +59,7 @@ export interface ValidationError {
  */
 export function validatePlan(plan: Partial<TradePlan>): ValidationError[] {
   const errors: ValidationError[] = []
+  const isResonance = plan.confidence?.mode === 'resonance'
 
   if (!plan.id) errors.push({ field: 'id', message: 'id 缺失' })
   if (!plan.account_id) errors.push({ field: 'account_id', message: '账户必填' })
@@ -85,6 +107,29 @@ export function validatePlan(plan: Partial<TradePlan>): ValidationError[] {
       if (!Array.isArray(c.planned_targets) || c.planned_targets.length < 1) {
         errors.push({ field: `candidates[${i}].planned_targets`, message: `方案 ${i + 1} 至少填 1 个目标价` })
       }
+
+      if (isResonance) {
+        if (c.strategy_structure) {
+          if (!VALID_STRATEGY_STRUCTURE_TYPE.includes(c.strategy_structure.structure_type)) {
+            errors.push({
+              field: `candidates[${i}].strategy_structure.structure_type`,
+              message: `方案 ${i + 1} 工具组合类型非法`,
+            })
+          }
+          if (!VALID_MATCH_SCORE.includes(c.strategy_structure.match_score)) {
+            errors.push({
+              field: `candidates[${i}].strategy_structure.match_score`,
+              message: `方案 ${i + 1} 工具组合匹配度非法`,
+            })
+          }
+        }
+        if (c.sizing_rationale !== undefined && c.sizing_rationale.trim().length === 0) {
+          errors.push({
+            field: `candidates[${i}].sizing_rationale`,
+            message: `方案 ${i + 1} 仓位判断说明不能为空`,
+          })
+        }
+      }
     })
   }
 
@@ -108,9 +153,66 @@ export function validatePlan(plan: Partial<TradePlan>): ValidationError[] {
     if (Array.isArray(mc.hot_stocks) && mc.hot_stocks.length > MAX_HOT_STOCKS) {
       errors.push({ field: 'hot_stocks', message: `热点个股最多 ${MAX_HOT_STOCKS} 个` })
     }
+
+    if (isResonance) {
+      if (!mc.market_sentiment) {
+        errors.push({
+          field: 'market_context.market_sentiment',
+          message: '共振度模式下市场情绪必填',
+        })
+      } else {
+        if (!mc.market_sentiment.bucket
+          || !VALID_SENTIMENT_BUCKET.includes(mc.market_sentiment.bucket)) {
+          errors.push({
+            field: 'market_context.market_sentiment.bucket',
+            message: '市场情绪桶值非法',
+          })
+        }
+        if (mc.market_sentiment.raw_value !== undefined) {
+          const rv = mc.market_sentiment.raw_value
+          if (typeof rv !== 'number' || !Number.isFinite(rv) || rv < 0 || rv > 100) {
+            errors.push({
+              field: 'market_context.market_sentiment.raw_value',
+              message: 'F&G 原始值需在 0-100',
+            })
+          }
+        }
+        if (mc.market_sentiment.percentile_2y !== undefined) {
+          const p = mc.market_sentiment.percentile_2y
+          if (typeof p !== 'number' || !Number.isFinite(p) || p < 0 || p > 1) {
+            errors.push({
+              field: 'market_context.market_sentiment.percentile_2y',
+              message: '2 年分位需在 0-1',
+            })
+          }
+        }
+      }
+
+      if (mc.price_structure) {
+        if (!VALID_SIGNAL_TYPE.includes(mc.price_structure.signal_type)) {
+          errors.push({
+            field: 'market_context.price_structure.signal_type',
+            message: '价格结构信号类型非法',
+          })
+        }
+        if (!VALID_SIGNAL_CONFIDENCE.includes(mc.price_structure.confidence)) {
+          errors.push({
+            field: 'market_context.price_structure.confidence',
+            message: '价格结构置信度非法',
+          })
+        }
+        if (!mc.price_structure.observed_at
+          || Number.isNaN(new Date(mc.price_structure.observed_at).getTime())) {
+          errors.push({
+            field: 'market_context.price_structure.observed_at',
+            message: '价格结构观察时间无效',
+          })
+        }
+      }
+    }
   }
 
-  // confidence 主观分
+  // confidence 主观分 / 共振度模式
   const cf = plan.confidence
   if (!cf) {
     errors.push({ field: 'confidence', message: '置信度必填' })
@@ -119,6 +221,19 @@ export function validatePlan(plan: Partial<TradePlan>): ValidationError[] {
       if (typeof cf.subjective_score !== 'number'
         || !(cf.subjective_score >= 1 && cf.subjective_score <= 5)) {
         errors.push({ field: 'confidence.subjective_score', message: '置信度 1-5' })
+      }
+    } else if (cf.mode === 'resonance') {
+      const sf = (cf as { symbol_familiarity?: unknown }).symbol_familiarity
+      if (sf === undefined || sf === null) {
+        errors.push({
+          field: 'confidence.symbol_familiarity',
+          message: '共振度模式下标的熟悉度必填',
+        })
+      } else if (typeof sf !== 'number' || !Number.isInteger(sf) || sf < 1 || sf > 5) {
+        errors.push({
+          field: 'confidence.symbol_familiarity',
+          message: '标的熟悉度必须是 1 到 5',
+        })
       }
     }
     if (!cf.subjective_reason || cf.subjective_reason.trim().length < 10) {
