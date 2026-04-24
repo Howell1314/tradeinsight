@@ -21,3 +21,4 @@
 
 - [typecheck-silent-pass-with-project-references.md](./typecheck-silent-pass-with-project-references.md) — `tsc --noEmit` 在 `tsconfig.json` 使用 project references 且 `files: []` 时**静默跳过**类型检查；必须用 `tsc -b --noEmit` 才是真 check
 - [signout-race-loses-fire-and-forget-writes.md](./signout-race-loses-fire-and-forget-writes.md) — 登出前必须 flush pending 云写入；否则最后一笔编辑会被 JWT 失效吃掉，本地 + 云端双丢
+- [schema-drift-silent-postgrest-errors.md](./schema-drift-silent-postgrest-errors.md) — `supabase-js` 不 throw，失败只在 `{error}` 里；schema/代码 drift + 不检查 error = 静默数据丢失 13 天。每个 upsert 必须 `if (error) throw error`
