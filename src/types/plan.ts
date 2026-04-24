@@ -47,6 +47,37 @@ export interface HotStockEntry {
   notes?: string
 }
 
+// v2.4 Phase 2.1：情绪分位（5 层共振度之"情绪分位"层输入）
+// Phase 2.1 由用户手选 bucket；Phase 2.2 可填 raw_value + percentile_2y
+export type SentimentBucket =
+  | 'extreme_fear'
+  | 'fear'
+  | 'neutral'
+  | 'greed'
+  | 'extreme_greed'
+
+export interface MarketSentiment {
+  source: 'fear_greed_cnn' | 'other'
+  bucket: SentimentBucket
+  raw_value?: number
+  percentile_2y?: number
+  note?: string
+}
+
+// v2.4 Phase 2.1：价格结构信号（5 层共振度之"价格结构"层输入）
+export interface PriceStructureSignal {
+  signal_type:
+    | 'resistance_break'
+    | 'support_hold'
+    | 'double_top'
+    | 'double_bottom'
+    | 'range_mid'
+    | 'other'
+  observed_at: string
+  confidence: 'strong' | 'medium' | 'weak'
+  note?: string
+}
+
 export interface MarketContext {
   market_trend_short: MarketTrend
   market_trend_medium: MarketTrend
@@ -64,6 +95,9 @@ export interface MarketContext {
 
   key_macro_events?: string
   days_to_next_earnings?: number
+
+  market_sentiment?: MarketSentiment
+  price_structure?: PriceStructureSignal
 }
 
 // ═══════════════════════════════════════════════════════
@@ -123,6 +157,32 @@ export type PositionSizing =
   | { type: 'capital_pct'; percentage: number; capital_reference: number }
   | { type: 'risk_pct'; risk_percentage: number; capital_reference: number }
 
+// v2.4 Phase 2.1：工具组合（5 层共振度之"工具组合"层输入）
+// 与 PlanCandidate.strategy_type (自由文本) 并存；strategy_type 保留做兼容
+export type StrategyStructureType =
+  | 'long_stock'
+  | 'long_call'
+  | 'long_put'
+  | 'short_put'
+  | 'short_call'
+  | 'covered_call'
+  | 'protective_put'
+  | 'risk_reversal'
+  | 'vertical_spread_bull'
+  | 'vertical_spread_bear'
+  | 'iron_condor'
+  | 'cfd_long'
+  | 'cfd_short'
+  | 'futures_long'
+  | 'futures_short'
+  | 'other'
+
+export interface StrategyStructure {
+  structure_type: StrategyStructureType
+  match_score: 'high' | 'medium' | 'low'
+  note?: string
+}
+
 export interface PlanCandidate {
   id: string
   name: string
@@ -144,6 +204,9 @@ export interface PlanCandidate {
 
   pros?: string
   cons?: string
+
+  strategy_structure?: StrategyStructure
+  sizing_rationale?: string
 }
 
 // ═══════════════════════════════════════════════════════
@@ -170,11 +233,34 @@ export interface PlanLeg {
 // 置信度 & 后手
 // ═══════════════════════════════════════════════════════
 
+// v2.4 Phase 2.1：5 层共振度 breakdown（持久化；score 不持久化，每次 derive）
+// total = 达标层数之和（0-5）。2 层以上缺失时自然最多 3；缺 1 层可到 4；满分 5。
+export type ResonanceLayer =
+  | 'price_structure'
+  | 'sentiment'
+  | 'familiarity'
+  | 'strategy_fit'
+  | 'sizing_fit'
+
+export interface ResonanceBreakdown {
+  price_structure: 0 | 1
+  sentiment: 0 | 1
+  familiarity: 0 | 1
+  strategy_fit: 0 | 1
+  sizing_fit: 0 | 1
+  total: 0 | 1 | 2 | 3 | 4 | 5
+  blockers: string[]
+  computed_at: string
+}
+
 export interface PlanConfidence {
-  mode: 'subjective'
-  subjective_score: number
+  mode: 'subjective' | 'resonance'
+  subjective_score?: number
   subjective_reason: string
   final_score: number
+
+  resonance_breakdown?: ResonanceBreakdown
+  symbol_familiarity?: 1 | 2 | 3 | 4 | 5
 }
 
 export interface FallbackPlan {
@@ -355,4 +441,58 @@ export const PLAN_ASSET_LABELS: Record<PlanAssetClass, string> = {
   equity: '股票',
   option: '期权',
   crypto: '数字货币',
+}
+
+// ═══════════════════════════════════════════════════════
+// v2.4 Phase 2.1：共振度相关 UI 辅助常量
+// ═══════════════════════════════════════════════════════
+
+export const SENTIMENT_BUCKET_LABELS: Record<SentimentBucket, string> = {
+  extreme_fear: '极恐',
+  fear: '恐慌',
+  neutral: '中性',
+  greed: '贪婪',
+  extreme_greed: '极贪',
+}
+
+export const PRICE_SIGNAL_LABELS: Record<PriceStructureSignal['signal_type'], string> = {
+  resistance_break: '压力位失败',
+  support_hold: '支撑位确认',
+  double_top: '双顶',
+  double_bottom: '双底',
+  range_mid: '区间中段',
+  other: '其他',
+}
+
+export const STRATEGY_STRUCTURE_LABELS: Record<StrategyStructureType, string> = {
+  long_stock: '做多正股',
+  long_call: '买 Call',
+  long_put: '买 Put',
+  short_put: '卖 Put',
+  short_call: '裸卖 Call',
+  covered_call: 'Covered Call',
+  protective_put: 'Protective Put',
+  risk_reversal: 'Risk Reversal',
+  vertical_spread_bull: '牛市垂直价差',
+  vertical_spread_bear: '熊市垂直价差',
+  iron_condor: '铁鹰',
+  cfd_long: 'CFD 多头',
+  cfd_short: 'CFD 空头',
+  futures_long: '期货多头',
+  futures_short: '期货空头',
+  other: '其他',
+}
+
+export const MATCH_SCORE_LABELS: Record<'high' | 'medium' | 'low', string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+}
+
+export const RESONANCE_LAYER_LABELS: Record<ResonanceLayer, string> = {
+  price_structure: '价格结构',
+  sentiment: '情绪分位',
+  familiarity: '标的熟悉度',
+  strategy_fit: '工具匹配',
+  sizing_fit: '仓位匹配',
 }

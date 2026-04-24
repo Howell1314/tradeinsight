@@ -115,8 +115,11 @@ export function validatePlan(plan: Partial<TradePlan>): ValidationError[] {
   if (!cf) {
     errors.push({ field: 'confidence', message: '置信度必填' })
   } else {
-    if (!(cf.subjective_score >= 1 && cf.subjective_score <= 5)) {
-      errors.push({ field: 'confidence.subjective_score', message: '置信度 1-5' })
+    if (cf.mode === 'subjective') {
+      if (typeof cf.subjective_score !== 'number'
+        || !(cf.subjective_score >= 1 && cf.subjective_score <= 5)) {
+        errors.push({ field: 'confidence.subjective_score', message: '置信度 1-5' })
+      }
     }
     if (!cf.subjective_reason || cf.subjective_reason.trim().length < 10) {
       errors.push({ field: 'confidence.subjective_reason', message: '置信度理由至少 10 字' })

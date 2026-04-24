@@ -37,6 +37,7 @@ export default function PlanDetailPage() {
   const primary = plan.candidates.find((c) => c.id === plan.selected_candidate_id) || plan.candidates[0]
   const accountName = accounts.find((a) => a.id === plan.account_id)?.name || plan.account_id
   const daysLeft = useMemo(() => daysUntil(plan.effective_until), [plan.effective_until])
+  const subjectiveScore = plan.confidence.subjective_score ?? 0
   const canCancel = ['draft', 'active'].includes(plan.status)
   const isDeleted = plan.status === 'deleted'
   const canReuse = ['cancelled', 'expired', 'closed'].includes(plan.status)
@@ -141,7 +142,7 @@ export default function PlanDetailPage() {
         <KV label="交易目标">{PRIMARY_GOAL_LABELS[plan.primary_goal]}</KV>
         <KV label="资金属性">{FUND_ATTRIBUTE_LABELS[plan.fund_attribute]}</KV>
         <KV label="置信度">
-          <span style={{ color: '#eab308' }}>{'★'.repeat(plan.confidence.subjective_score)}{'☆'.repeat(5 - plan.confidence.subjective_score)}</span>
+          <span style={{ color: '#eab308' }}>{'★'.repeat(subjectiveScore)}{'☆'.repeat(5 - subjectiveScore)}</span>
           <span style={{ marginLeft: 8, color: '#9ca3af', fontSize: 12 }}>{plan.confidence.subjective_reason}</span>
         </KV>
         {plan.strategy_tags.length > 0 && (
