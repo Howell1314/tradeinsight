@@ -20,6 +20,9 @@ function priceAgeLabel(updatedAt: number | undefined): { label: string; stale: b
   return { label: `${ageD}天前`, stale: true }
 }
 
+const UNSUPPORTED_QUOTE_CLASSES: AssetClass[] = ['option', 'cfd', 'futures']
+const UNSUPPORTED_HINT = '期权/CFD/期货暂无公开行情源，请点铅笔图标手动输入'
+
 function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
   symbol: string; assetClass: AssetClass; current: number
   updatedAt?: number; onSave: (v: number) => void
@@ -27,7 +30,8 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(current))
   const [refreshing, setRefreshing] = useState(false)
-  const [fetchFailed, setFetchFailed] = useState(false)
+  const [fetchFailed, setFetchFailed] = useState<false | 'unsupported' | 'error'>(false)
+  const isUnsupported = UNSUPPORTED_QUOTE_CLASSES.includes(assetClass)
 
   const commit = () => {
     const n = parseFloat(val)
@@ -37,6 +41,11 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
 
   const refresh = async () => {
     if (refreshing) return
+    if (isUnsupported) {
+      setFetchFailed('unsupported')
+      setTimeout(() => setFetchFailed(false), 4000)
+      return
+    }
     setRefreshing(true)
     setFetchFailed(false)
     const price = await fetchPrice(symbol, assetClass)
@@ -45,7 +54,7 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
       onSave(price)
       setVal(String(price))
     } else {
-      setFetchFailed(true)
+      setFetchFailed('error')
       setTimeout(() => setFetchFailed(false), 3000)
     }
   }
@@ -79,16 +88,23 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
         {/* 点击价格文字即可刷新行情 */}
         <span
           onClick={refresh}
-          title="点击从行情接口刷新价格"
+          title={isUnsupported ? UNSUPPORTED_HINT : '点击从行情接口刷新价格'}
           style={{
             color: fetchFailed ? '#ef4444' : '#e2e8f0',
             cursor: refreshing ? 'default' : 'pointer',
             borderBottom: refreshing ? 'none' : '1px dashed #4a5268',
           }}
         >
-          {refreshing ? '刷新中…' : fetchFailed ? '获取失败' : formatCurrency(current)}
+          {refreshing
+            ? '刷新中…'
+            : fetchFailed === 'unsupported'
+              ? '不支持自动获取'
+              : fetchFailed === 'error'
+                ? '获取失败'
+                : formatCurrency(current)}
         </span>
-        <button onClick={refresh} disabled={refreshing} title="从行情接口刷新价格"
+        <button onClick={refresh} disabled={refreshing}
+          title={isUnsupported ? UNSUPPORTED_HINT : '从行情接口刷新价格'}
           style={{ background: 'none', border: 'none', cursor: refreshing ? 'default' : 'pointer',
             color: refreshing ? '#3b82f6' : '#6b7280', padding: 2,
             animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>
@@ -102,7 +118,10 @@ function PriceEditor({ symbol, assetClass, current, updatedAt, onSave }: {
           <Edit2 size={13} />
         </button>
       </div>
-      {fetchFailed && (
+      {fetchFailed === 'unsupported' && (
+        <span style={{ fontSize: 10, color: '#f59e0b', lineHeight: 1.3 }}>{UNSUPPORTED_HINT}</span>
+      )}
+      {fetchFailed === 'error' && (
         <span style={{ fontSize: 10, color: '#ef4444', lineHeight: 1 }}>行情接口无响应，可手动输入</span>
       )}
       {!fetchFailed && age && (

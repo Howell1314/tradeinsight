@@ -12,6 +12,7 @@ export type PlanStatus =
   | 'closed'
   | 'expired'
   | 'cancelled'
+  | 'deleted'
 
 export type PlanAssetClass = Extract<AssetClass, 'equity' | 'option' | 'crypto'>
 
@@ -341,6 +342,7 @@ export const PLAN_STATUS_LABELS: Record<PlanStatus, string> = {
   closed: '已平仓',
   expired: '已过期',
   cancelled: '已取消',
+  deleted: '已删除',
 }
 
 export const PRIMARY_GOAL_LABELS: Record<PrimaryGoal, string> = {

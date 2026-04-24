@@ -13,7 +13,7 @@ import type {
 } from '../types/plan'
 
 const VALID_STATUS: PlanStatus[] = [
-  'draft', 'active', 'triggered', 'partial', 'closed', 'expired', 'cancelled',
+  'draft', 'active', 'triggered', 'partial', 'closed', 'expired', 'cancelled', 'deleted',
 ]
 const VALID_ASSET: PlanAssetClass[] = ['equity', 'option', 'crypto']
 const VALID_DIRECTION: PlanDirection[] = ['long', 'short']

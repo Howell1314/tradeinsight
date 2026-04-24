@@ -8,14 +8,15 @@ import {
   PRIMARY_GOAL_LABELS,
 } from '../types/plan'
 import type { TradePlan, PlanStatus } from '../types/plan'
-import { Plus, Zap, Target, ChevronRight } from 'lucide-react'
+import { Plus, Zap, Target, ChevronRight, ChevronDown } from 'lucide-react'
 import PlanCreateWizard from '../components/plan/PlanCreateWizard'
 import QuickPlanForm from '../components/plan/QuickPlanForm'
 
-const STATUS_GROUPS: { key: 'live' | 'finished' | 'draft'; label: string; statuses: PlanStatus[] }[] = [
+const STATUS_GROUPS: { key: 'live' | 'finished' | 'draft' | 'deleted'; label: string; statuses: PlanStatus[] }[] = [
   { key: 'live',     label: '活跃中',   statuses: ['active', 'triggered', 'partial'] },
   { key: 'draft',    label: '草稿',     statuses: ['draft'] },
   { key: 'finished', label: '已完成',   statuses: ['closed', 'expired', 'cancelled'] },
+  { key: 'deleted',  label: '已删除',   statuses: ['deleted'] },
 ]
 
 const STATUS_COLORS: Record<PlanStatus, string> = {
@@ -26,6 +27,7 @@ const STATUS_COLORS: Record<PlanStatus, string> = {
   closed: '#8b5cf6',
   expired: '#f97316',
   cancelled: '#4b5563',
+  deleted: '#7f1d1d',
 }
 
 type Mode = 'list' | 'create' | 'quick'
@@ -34,6 +36,7 @@ export default function PlansPage() {
   const { plans, accounts, openPlanDetail } = useTradeStore()
   const [mode, setMode] = useState<Mode>('list')
   const [accountFilter, setAccountFilter] = useState<string>('')
+  const [showDeleted, setShowDeleted] = useState(false)
 
   const filtered = useMemo(() => {
     if (!accountFilter) return plans
@@ -89,16 +92,34 @@ export default function PlansPage() {
       {plans.length > 0 && STATUS_GROUPS.map((g) => {
         const items = byGroup[g.key]
         if (!items.length) return null
+        const isCollapsible = g.key === 'deleted'
+        const collapsed = isCollapsible && !showDeleted
         return (
           <section key={g.key} style={{ marginBottom: 28 }}>
-            <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 10 }}>
-              {g.label} <span style={{ color: '#6b7280' }}>({items.length})</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-              {items.map((p) => (
-                <PlanCard key={p.id} plan={p} accountName={accounts.find((a) => a.id === p.account_id)?.name || p.account_id} onClick={() => openPlanDetail(p.id)} />
-              ))}
-            </div>
+            {isCollapsible ? (
+              <button
+                onClick={() => setShowDeleted((v) => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  background: 'transparent', border: 'none', padding: 0,
+                  fontSize: 13, color: '#9ca3af', marginBottom: 10, cursor: 'pointer',
+                }}
+              >
+                {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                {g.label} <span style={{ color: '#6b7280' }}>({items.length})</span>
+              </button>
+            ) : (
+              <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 10 }}>
+                {g.label} <span style={{ color: '#6b7280' }}>({items.length})</span>
+              </div>
+            )}
+            {!collapsed && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {items.map((p) => (
+                  <PlanCard key={p.id} plan={p} accountName={accounts.find((a) => a.id === p.account_id)?.name || p.account_id} onClick={() => openPlanDetail(p.id)} />
+                ))}
+              </div>
+            )}
           </section>
         )
       })}

@@ -11,7 +11,7 @@ import {
   loadRiskRules, upsertRiskRules,
 } from '../lib/syncTrades'
 import { loadCloudPlans, upsertPlan, deleteCloudPlan, mergePlans } from '../lib/syncPlans'
-import { isValidPlan } from '../utils/validatePlan'
+import { isValidPlan, generatePlanId } from '../utils/validatePlan'
 
 const VALID_ASSET_CLASSES = ['crypto', 'equity', 'option', 'etf', 'cfd', 'futures']
 const VALID_DIRECTIONS = ['buy', 'sell', 'short', 'cover']
@@ -116,7 +116,14 @@ interface TradeStore {
   addPlan: (plan: TradePlan) => void
   updatePlan: (id: string, updates: Partial<TradePlan>) => void
   cancelPlan: (id: string, reason: string) => void
+  /** 软删：status → 'deleted'，保留记录可恢复 */
   deletePlan: (id: string) => void
+  /** 硬删：从本地 + 云端彻底移除 */
+  permanentDeletePlan: (id: string) => void
+  /** 从 deleted 状态恢复为 active（保留原有计划内容） */
+  reactivatePlan: (id: string) => void
+  /** 复制一个现有计划为新的 draft 计划，返回新 id */
+  duplicatePlan: (id: string) => string | null
   expirePlans: () => void
   setCurrentPlan: (id: string | null) => void
   openPlanDetail: (id: string) => void
@@ -438,12 +445,68 @@ export const useTradeStore = create<TradeStore>()(
 
       deletePlan: (id) => {
         set((s) => {
-          if (s.userId) deleteCloudPlan(s.userId, id).catch((e) => console.error('[sync] deletePlan failed', e))
+          const plans = s.plans.map((p) =>
+            p.id === id
+              ? { ...p, status: 'deleted' as PlanStatus, updated_at: new Date().toISOString() }
+              : p,
+          )
+          if (s.userId) {
+            const updated = plans.find((p) => p.id === id)
+            if (updated) upsertPlan(s.userId, updated).catch((e) => console.error('[sync] deletePlan failed', e))
+          }
+          return { plans }
+        })
+      },
+
+      permanentDeletePlan: (id) => {
+        set((s) => {
+          if (s.userId) deleteCloudPlan(s.userId, id).catch((e) => console.error('[sync] permanentDeletePlan failed', e))
           return {
             plans: s.plans.filter((p) => p.id !== id),
             currentPlanId: s.currentPlanId === id ? null : s.currentPlanId,
           }
         })
+      },
+
+      reactivatePlan: (id) => {
+        set((s) => {
+          const plans = s.plans.map((p) =>
+            p.id === id
+              ? { ...p, status: 'active' as PlanStatus, updated_at: new Date().toISOString() }
+              : p,
+          )
+          if (s.userId) {
+            const updated = plans.find((p) => p.id === id)
+            if (updated) upsertPlan(s.userId, updated).catch((e) => console.error('[sync] reactivatePlan failed', e))
+          }
+          return { plans }
+        })
+      },
+
+      duplicatePlan: (id) => {
+        const source = get().plans.find((p) => p.id === id)
+        if (!source) return null
+        const now = new Date().toISOString()
+        const today = now.slice(0, 10)
+        const plus7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+        const clone: TradePlan = {
+          ...source,
+          id: generatePlanId(),
+          status: 'draft',
+          effective_from: today,
+          effective_until: source.effective_until >= today ? source.effective_until : plus7,
+          cancelled_reason: undefined,
+          closed_at: undefined,
+          expired_note: undefined,
+          created_at: now,
+          updated_at: now,
+        }
+        set((s) => {
+          const plans = [...s.plans, clone]
+          if (s.userId) upsertPlan(s.userId, clone).catch((e) => console.error('[sync] duplicatePlan failed', e))
+          return { plans }
+        })
+        return clone.id
       },
 
       expirePlans: () => {

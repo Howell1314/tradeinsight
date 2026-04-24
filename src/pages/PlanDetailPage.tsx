@@ -8,15 +8,19 @@ import {
   PRIMARY_GOAL_LABELS,
 } from '../types/plan'
 import type { PlanStatus, PlanCandidate, AssetSpecifics } from '../types/plan'
-import { ArrowLeft, XCircle, Trash2 } from 'lucide-react'
+import { ArrowLeft, XCircle, Trash2, RefreshCw, Copy } from 'lucide-react'
 
 const STATUS_COLORS: Record<PlanStatus, string> = {
   draft: '#6b7280', active: '#22c55e', triggered: '#3b82f6',
-  partial: '#eab308', closed: '#8b5cf6', expired: '#f97316', cancelled: '#4b5563',
+  partial: '#eab308', closed: '#8b5cf6', expired: '#f97316',
+  cancelled: '#4b5563', deleted: '#7f1d1d',
 }
 
 export default function PlanDetailPage() {
-  const { plans, currentPlanId, setView, cancelPlan, deletePlan, accounts } = useTradeStore()
+  const {
+    plans, currentPlanId, setView, accounts,
+    cancelPlan, deletePlan, permanentDeletePlan, reactivatePlan, duplicatePlan, openPlanDetail,
+  } = useTradeStore()
   const plan = plans.find((p) => p.id === currentPlanId)
   const [showCancel, setShowCancel] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
@@ -34,6 +38,8 @@ export default function PlanDetailPage() {
   const accountName = accounts.find((a) => a.id === plan.account_id)?.name || plan.account_id
   const daysLeft = useMemo(() => daysUntil(plan.effective_until), [plan.effective_until])
   const canCancel = ['draft', 'active'].includes(plan.status)
+  const isDeleted = plan.status === 'deleted'
+  const canReuse = ['cancelled', 'expired', 'closed'].includes(plan.status)
 
   const handleCancel = () => {
     if (!cancelReason.trim()) return
@@ -41,10 +47,24 @@ export default function PlanDetailPage() {
     setShowCancel(false)
   }
 
-  const handleDelete = () => {
-    if (!confirm(`删除计划 ${plan.symbol}？此操作不可恢复。`)) return
+  const handleSoftDelete = () => {
     deletePlan(plan.id)
     setView('plans')
+  }
+
+  const handlePermanentDelete = () => {
+    if (!confirm(`彻底删除计划 ${plan.symbol}？此操作不可恢复。`)) return
+    permanentDeletePlan(plan.id)
+    setView('plans')
+  }
+
+  const handleReactivate = () => {
+    reactivatePlan(plan.id)
+  }
+
+  const handleDuplicate = () => {
+    const newId = duplicatePlan(plan.id)
+    if (newId) openPlanDetail(newId)
   }
 
   return (
@@ -64,15 +84,34 @@ export default function PlanDetailPage() {
             {PLAN_ASSET_LABELS[plan.asset_class]} · {accountName} · {plan.plan_mode === 'quick' ? '快速计划' : '完整计划'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {canCancel && (
             <button onClick={() => setShowCancel(true)} style={secondaryBtn}>
               <XCircle size={14} /> 取消计划
             </button>
           )}
-          <button onClick={handleDelete} style={dangerBtn}>
-            <Trash2 size={14} /> 删除
-          </button>
+          {canReuse && (
+            <button onClick={handleDuplicate} style={primaryBtn} title="基于此计划创建一份新草稿">
+              <Copy size={14} /> 复用计划
+            </button>
+          )}
+          {isDeleted ? (
+            <>
+              <button onClick={handleReactivate} style={secondaryBtn} title="从已删除恢复到就绪状态">
+                <RefreshCw size={14} /> 重新激活
+              </button>
+              <button onClick={handleDuplicate} style={secondaryBtn} title="基于此计划创建一份新草稿">
+                <Copy size={14} /> 复用计划
+              </button>
+              <button onClick={handlePermanentDelete} style={dangerBtn} title="从云端和本地彻底移除">
+                <Trash2 size={14} /> 彻底删除
+              </button>
+            </>
+          ) : (
+            <button onClick={handleSoftDelete} style={dangerBtn} title="移入已删除（可在已删除列表恢复）">
+              <Trash2 size={14} /> 删除
+            </button>
+          )}
         </div>
       </div>
 
