@@ -20,3 +20,4 @@
 ## 索引
 
 - [typecheck-silent-pass-with-project-references.md](./typecheck-silent-pass-with-project-references.md) — `tsc --noEmit` 在 `tsconfig.json` 使用 project references 且 `files: []` 时**静默跳过**类型检查；必须用 `tsc -b --noEmit` 才是真 check
+- [signout-race-loses-fire-and-forget-writes.md](./signout-race-loses-fire-and-forget-writes.md) — 登出前必须 flush pending 云写入；否则最后一笔编辑会被 JWT 失效吃掉，本地 + 云端双丢

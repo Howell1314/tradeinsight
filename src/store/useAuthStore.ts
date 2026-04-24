@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../lib/supabase'
+import { flushPendingSync } from '../lib/pendingSync'
 
 interface AuthStore {
   user: User | null
@@ -64,6 +65,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   signOut: async () => {
+    // Flush fire-and-forget cloud writes before invalidating the session — once
+    // supabase.auth.signOut() runs, the JWT is rejected by RLS and any in-flight
+    // upsert dies silently, permanently losing the last edit before logout.
+    await flushPendingSync()
     await supabase.auth.signOut()
     set({ user: null, session: null, profile: null })
     // Trade data is cleared by App.tsx via clearUserData() when user becomes null
