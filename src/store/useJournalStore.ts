@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { loadCloudJournal, upsertJournalEntry, deleteJournalEntry } from '../lib/syncTrades'
-import { trackSync } from '../lib/pendingSync'
+import { trackSync, catchSync } from '../lib/pendingSync'
 
 export interface JournalEntry {
   id: string
@@ -65,18 +65,18 @@ export const useJournalStore = create<JournalStore>()(
       addEntry: (entry, userId) => {
         const stamped = stamp(entry)
         set((s) => ({ entries: [stamped, ...s.entries] }))
-        if (userId) trackSync(upsertJournalEntry(userId, { ...stamped, images: stamped.images ?? [], review: stamped.review ?? '' })).catch((e) => console.error('[sync] addEntry failed', e))
+        if (userId) trackSync(upsertJournalEntry(userId, { ...stamped, images: stamped.images ?? [], review: stamped.review ?? '' })).catch(catchSync('addEntry'))
       },
 
       updateEntry: (entry, userId) => {
         const stamped = stamp(entry)
         set((s) => ({ entries: s.entries.map((e) => e.id === stamped.id ? stamped : e) }))
-        if (userId) trackSync(upsertJournalEntry(userId, { ...stamped, images: stamped.images ?? [], review: stamped.review ?? '' })).catch((e) => console.error('[sync] updateEntry failed', e))
+        if (userId) trackSync(upsertJournalEntry(userId, { ...stamped, images: stamped.images ?? [], review: stamped.review ?? '' })).catch(catchSync('updateEntry'))
       },
 
       deleteEntry: (id, userId) => {
         set((s) => ({ entries: s.entries.filter((e) => e.id !== id) }))
-        if (userId) trackSync(deleteJournalEntry(userId, id)).catch((e) => console.error('[sync] deleteEntry failed', e))
+        if (userId) trackSync(deleteJournalEntry(userId, id)).catch(catchSync('deleteEntry'))
       },
 
       syncFromCloud: async (userId) => {
@@ -90,7 +90,7 @@ export const useJournalStore = create<JournalStore>()(
         if (valid.length === 0 && localEntries.length > 0) {
           // Nothing on cloud yet — push all local entries
           for (const e of localEntries) {
-            trackSync(upsertJournalEntry(userId, { ...e, images: e.images ?? [], review: e.review ?? '' })).catch((err) => console.error('[sync] initial journal push failed', err))
+            trackSync(upsertJournalEntry(userId, { ...e, images: e.images ?? [], review: e.review ?? '' })).catch(catchSync('initial journal push'))
           }
           set({ cloudLoaded: true })
           return
@@ -125,7 +125,7 @@ export const useJournalStore = create<JournalStore>()(
 
         if (toUpsertToCloud.length > 0) {
           for (const e of toUpsertToCloud) {
-            trackSync(upsertJournalEntry(userId, { ...e, images: e.images ?? [], review: e.review ?? '' })).catch((err) => console.error('[sync] retro journal push failed', err))
+            trackSync(upsertJournalEntry(userId, { ...e, images: e.images ?? [], review: e.review ?? '' })).catch(catchSync('retro journal push'))
           }
         }
 

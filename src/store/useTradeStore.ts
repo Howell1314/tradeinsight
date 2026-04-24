@@ -12,7 +12,7 @@ import {
 } from '../lib/syncTrades'
 import { loadCloudPlans, upsertPlan, upsertPlans, deleteCloudPlan, mergePlans } from '../lib/syncPlans'
 import { isValidPlan, generatePlanId } from '../utils/validatePlan'
-import { trackSync } from '../lib/pendingSync'
+import { trackSync, catchSync } from '../lib/pendingSync'
 
 const VALID_ASSET_CLASSES = ['crypto', 'equity', 'option', 'etf', 'cfd', 'futures']
 const VALID_DIRECTIONS = ['buy', 'sell', 'short', 'cover']
@@ -211,7 +211,7 @@ export const useTradeStore = create<TradeStore>()(
         const stamped = { ...trade, updated_at: new Date().toISOString() }
         set((s) => {
           const trades = [...s.trades, stamped]
-          if (s.userId) trackSync(upsertTrade(s.userId, stamped)).catch((e) => console.error('[sync] addTrade failed', e))
+          if (s.userId) trackSync(upsertTrade(s.userId, stamped)).catch(catchSync('addTrade'))
           return { trades, ...derive(trades, s.selectedAccount, s.currentPrices) }
         })
         return null
@@ -224,7 +224,7 @@ export const useTradeStore = create<TradeStore>()(
           )
           if (s.userId) {
             const updated = trades.find((t) => t.id === id)
-            if (updated) trackSync(upsertTrade(s.userId, updated)).catch((e) => console.error('[sync] updateTrade failed', e))
+            if (updated) trackSync(upsertTrade(s.userId, updated)).catch(catchSync('updateTrade'))
           }
           return { trades, ...derive(trades, s.selectedAccount, s.currentPrices) }
         })
@@ -232,7 +232,7 @@ export const useTradeStore = create<TradeStore>()(
 
       deleteTrade: (id) => {
         set((s) => {
-          if (s.userId) trackSync(deleteCloudTrade(s.userId, id)).catch((e) => console.error('[sync] deleteTrade failed', e))
+          if (s.userId) trackSync(deleteCloudTrade(s.userId, id)).catch(catchSync('deleteTrade'))
           const trades = s.trades.filter((t) => t.id !== id)
           return { trades, ...derive(trades, s.selectedAccount, s.currentPrices) }
         })
@@ -241,14 +241,14 @@ export const useTradeStore = create<TradeStore>()(
       importTrades: (newTrades) => {
         set((s) => {
           const trades = [...s.trades, ...newTrades]
-          if (s.userId) trackSync(upsertTrades(s.userId, newTrades)).catch((e) => console.error('[sync] importTrades failed', e))
+          if (s.userId) trackSync(upsertTrades(s.userId, newTrades)).catch(catchSync('importTrades'))
           return { trades, ...derive(trades, s.selectedAccount, s.currentPrices) }
         })
       },
 
       addAccount: (account) => {
         set((s) => {
-          if (s.userId) trackSync(upsertAccount(s.userId, account)).catch((e) => console.error('[sync] addAccount failed', e))
+          if (s.userId) trackSync(upsertAccount(s.userId, account)).catch(catchSync('addAccount'))
           return { accounts: [...s.accounts, account] }
         })
       },
@@ -258,7 +258,7 @@ export const useTradeStore = create<TradeStore>()(
           const accounts = s.accounts.map((a) => (a.id === id ? { ...a, ...updates } : a))
           if (s.userId) {
             const updated = accounts.find((a) => a.id === id)
-            if (updated) trackSync(upsertAccount(s.userId, updated)).catch((e) => console.error('[sync] updateAccount failed', e))
+            if (updated) trackSync(upsertAccount(s.userId, updated)).catch(catchSync('updateAccount'))
           }
           return { accounts }
         })
@@ -266,7 +266,7 @@ export const useTradeStore = create<TradeStore>()(
 
       deleteAccount: (id) => {
         set((s) => {
-          if (s.userId) trackSync(deleteCloudAccount(s.userId, id)).catch((e) => console.error('[sync] deleteAccount failed', e))
+          if (s.userId) trackSync(deleteCloudAccount(s.userId, id)).catch(catchSync('deleteAccount'))
           return { accounts: s.accounts.filter((a) => a.id !== id) }
         })
       },
@@ -299,21 +299,21 @@ export const useTradeStore = create<TradeStore>()(
 
       addAccountTransaction: (tx) => {
         set((s) => {
-          if (s.userId) trackSync(upsertAccountTransactions(s.userId, [tx])).catch((e) => console.error('[sync] addAccountTransaction failed', e))
+          if (s.userId) trackSync(upsertAccountTransactions(s.userId, [tx])).catch(catchSync('addAccountTransaction'))
           return { accountTransactions: [...s.accountTransactions, tx] }
         })
       },
 
       deleteAccountTransaction: (id) => {
         set((s) => {
-          if (s.userId) trackSync(deleteCloudAccountTransaction(s.userId, id)).catch((e) => console.error('[sync] deleteAccountTransaction failed', e))
+          if (s.userId) trackSync(deleteCloudAccountTransaction(s.userId, id)).catch(catchSync('deleteAccountTransaction'))
           return { accountTransactions: s.accountTransactions.filter((t) => t.id !== id) }
         })
       },
 
       setRiskRules: (rules) => {
         set((s) => {
-          if (s.userId) trackSync(upsertRiskRules(s.userId, rules)).catch((e) => console.error('[sync] setRiskRules failed', e))
+          if (s.userId) trackSync(upsertRiskRules(s.userId, rules)).catch(catchSync('setRiskRules'))
           return { riskRules: rules }
         })
       },
@@ -334,7 +334,7 @@ export const useTradeStore = create<TradeStore>()(
         if (!accounts.some((a) => a.id === 'default')) {
           const defaultAcc = { id: 'default', name: '默认账户', currency: 'USD' }
           accounts = [defaultAcc, ...accounts]
-          trackSync(upsertAccount(userId, defaultAcc)).catch((e) => console.error('[sync] default account push failed', e))
+          trackSync(upsertAccount(userId, defaultAcc)).catch(catchSync('default account push'))
         }
 
         // Merge: last-write-wins per trade using updated_at
@@ -347,12 +347,12 @@ export const useTradeStore = create<TradeStore>()(
         )
         if (localOnlyAccounts.length > 0) {
           accounts = [...accounts, ...localOnlyAccounts]
-          trackSync(upsertAccounts(userId, localOnlyAccounts)).catch((e) => console.error('[sync] retro-push accounts failed', e))
+          trackSync(upsertAccounts(userId, localOnlyAccounts)).catch(catchSync('retro-push accounts'))
         }
         if (trades.length === 0 && localTrades.length > 0) {
-          trackSync(upsertTrades(userId, localTrades)).catch((e) => console.error('[sync] initial trades push failed', e))
-          trackSync(upsertAccounts(userId, localAccounts.filter((a) => a.id !== 'default'))).catch((e) => console.error('[sync] initial accounts push failed', e))
-          if (localTxs.length > 0) trackSync(upsertAccountTransactions(userId, localTxs)).catch((e) => console.error('[sync] initial txs push failed', e))
+          trackSync(upsertTrades(userId, localTrades)).catch(catchSync('initial trades push'))
+          trackSync(upsertAccounts(userId, localAccounts.filter((a) => a.id !== 'default'))).catch(catchSync('initial accounts push'))
+          if (localTxs.length > 0) trackSync(upsertAccountTransactions(userId, localTxs)).catch(catchSync('initial txs push'))
           set({ userId, cloudSynced: true, ...derive(localTrades, get().selectedAccount, get().currentPrices) })
           return
         }
@@ -382,14 +382,14 @@ export const useTradeStore = create<TradeStore>()(
         for (const localTrade of localTrades) {
           if (!cloudTradeIds.has(localTrade.id)) toUpsertToCloud.push(localTrade)
         }
-        if (toUpsertToCloud.length > 0) trackSync(upsertTrades(userId, toUpsertToCloud)).catch((e) => console.error('[sync] retro-push trades failed', e))
+        if (toUpsertToCloud.length > 0) trackSync(upsertTrades(userId, toUpsertToCloud)).catch(catchSync('retro-push trades'))
 
         // Merge account transactions: union by id, local-only entries pushed to cloud
         let mergedTxs = localTxs
         if (cloudTxs !== null) {
           const cloudTxIds = new Set(cloudTxs.map((t) => t.id))
           const localOnly = localTxs.filter((t) => !cloudTxIds.has(t.id))
-          if (localOnly.length > 0) trackSync(upsertAccountTransactions(userId, localOnly)).catch((e) => console.error('[sync] retro-push txs failed', e))
+          if (localOnly.length > 0) trackSync(upsertAccountTransactions(userId, localOnly)).catch(catchSync('retro-push txs'))
           mergedTxs = [...cloudTxs, ...localOnly]
         }
 
@@ -423,7 +423,7 @@ export const useTradeStore = create<TradeStore>()(
       addPlan: (plan) => {
         set((s) => {
           const plans = [...s.plans, plan]
-          if (s.userId) trackSync(upsertPlan(s.userId, plan)).catch((e) => console.error('[sync] addPlan failed', e))
+          if (s.userId) trackSync(upsertPlan(s.userId, plan)).catch(catchSync('addPlan'))
           return { plans }
         })
       },
@@ -435,7 +435,7 @@ export const useTradeStore = create<TradeStore>()(
           )
           if (s.userId) {
             const updated = plans.find((p) => p.id === id)
-            if (updated) trackSync(upsertPlan(s.userId, updated)).catch((e) => console.error('[sync] updatePlan failed', e))
+            if (updated) trackSync(upsertPlan(s.userId, updated)).catch(catchSync('updatePlan'))
           }
           return { plans }
         })
@@ -455,7 +455,7 @@ export const useTradeStore = create<TradeStore>()(
           )
           if (s.userId) {
             const updated = plans.find((p) => p.id === id)
-            if (updated) trackSync(upsertPlan(s.userId, updated)).catch((e) => console.error('[sync] cancelPlan failed', e))
+            if (updated) trackSync(upsertPlan(s.userId, updated)).catch(catchSync('cancelPlan'))
           }
           return { plans }
         })
@@ -470,7 +470,7 @@ export const useTradeStore = create<TradeStore>()(
           )
           if (s.userId) {
             const updated = plans.find((p) => p.id === id)
-            if (updated) trackSync(upsertPlan(s.userId, updated)).catch((e) => console.error('[sync] deletePlan failed', e))
+            if (updated) trackSync(upsertPlan(s.userId, updated)).catch(catchSync('deletePlan'))
           }
           return { plans }
         })
@@ -478,7 +478,7 @@ export const useTradeStore = create<TradeStore>()(
 
       permanentDeletePlan: (id) => {
         set((s) => {
-          if (s.userId) trackSync(deleteCloudPlan(s.userId, id)).catch((e) => console.error('[sync] permanentDeletePlan failed', e))
+          if (s.userId) trackSync(deleteCloudPlan(s.userId, id)).catch(catchSync('permanentDeletePlan'))
           return {
             plans: s.plans.filter((p) => p.id !== id),
             currentPlanId: s.currentPlanId === id ? null : s.currentPlanId,
@@ -495,7 +495,7 @@ export const useTradeStore = create<TradeStore>()(
           )
           if (s.userId) {
             const updated = plans.find((p) => p.id === id)
-            if (updated) trackSync(upsertPlan(s.userId, updated)).catch((e) => console.error('[sync] reactivatePlan failed', e))
+            if (updated) trackSync(upsertPlan(s.userId, updated)).catch(catchSync('reactivatePlan'))
           }
           return { plans }
         })
@@ -521,7 +521,7 @@ export const useTradeStore = create<TradeStore>()(
         }
         set((s) => {
           const plans = [...s.plans, clone]
-          if (s.userId) trackSync(upsertPlan(s.userId, clone)).catch((e) => console.error('[sync] duplicatePlan failed', e))
+          if (s.userId) trackSync(upsertPlan(s.userId, clone)).catch(catchSync('duplicatePlan'))
           return { plans }
         })
         return clone.id
@@ -540,7 +540,7 @@ export const useTradeStore = create<TradeStore>()(
                 status: 'expired',
                 updated_at: new Date().toISOString(),
               }
-              if (s.userId) trackSync(upsertPlan(s.userId, next)).catch((e) => console.error('[sync] expirePlan failed', e))
+              if (s.userId) trackSync(upsertPlan(s.userId, next)).catch(catchSync('expirePlan'))
               return next
             }
             return p
@@ -562,7 +562,7 @@ export const useTradeStore = create<TradeStore>()(
         // Retro-push local-only plans (earlier upsertPlan may have silently failed)
         const cloudPlanIds = new Set(valid.map((p) => p.id))
         const localOnlyPlans = localPlans.filter((p) => !cloudPlanIds.has(p.id))
-        if (localOnlyPlans.length > 0) trackSync(upsertPlans(userId, localOnlyPlans)).catch((e) => console.error('[sync] retro upsertPlans failed', e))
+        if (localOnlyPlans.length > 0) trackSync(upsertPlans(userId, localOnlyPlans)).catch(catchSync('retro upsertPlans'))
         set({ plans: merged })
       },
 

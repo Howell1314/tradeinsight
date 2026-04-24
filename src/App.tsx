@@ -14,6 +14,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { useTradeStore } from './store/useTradeStore'
 import { useAuthStore } from './store/useAuthStore'
 import { useJournalStore } from './store/useJournalStore'
+import { addSyncErrorListener, type SyncErrorEvent } from './lib/pendingSync'
 
 export default function App() {
   const {
@@ -23,6 +24,9 @@ export default function App() {
   const { user, initialized, init } = useAuthStore()
   const { syncFromCloud: syncJournal, clearJournal } = useJournalStore()
   const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<SyncErrorEvent | null>(null)
+
+  useEffect(() => addSyncErrorListener(setSyncError), [])
 
   useEffect(() => {
     init()
@@ -91,11 +95,37 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      {syncError && <SyncErrorBanner evt={syncError} onDismiss={() => setSyncError(null)} />}
       <Layout>
         <ErrorBoundary>
           {pages[view] || <Dashboard />}
         </ErrorBoundary>
       </Layout>
     </ErrorBoundary>
+  )
+}
+
+function SyncErrorBanner({ evt, onDismiss }: { evt: SyncErrorEvent; onDismiss: () => void }) {
+  const err = evt.error as { message?: string; code?: string } | null
+  const detail = err?.message || String(evt.error)
+  return (
+    <div style={{
+      position: 'sticky', top: 0, zIndex: 100,
+      background: '#b91c1c', color: '#fff',
+      padding: '10px 16px', fontSize: 13,
+      display: 'flex', alignItems: 'center', gap: 12,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+    }}>
+      <span style={{ fontWeight: 600 }}>⚠ 云同步异常</span>
+      <span style={{ opacity: 0.85 }}>
+        [{evt.label}] {detail}
+      </span>
+      {err?.code && <span style={{ opacity: 0.6, fontFamily: 'monospace', fontSize: 11 }}>({err.code})</span>}
+      <button onClick={onDismiss} style={{
+        marginLeft: 'auto', background: 'rgba(255,255,255,0.15)',
+        border: 'none', color: '#fff', borderRadius: 4,
+        padding: '3px 10px', cursor: 'pointer', fontSize: 12,
+      }}>关闭</button>
+    </div>
   )
 }

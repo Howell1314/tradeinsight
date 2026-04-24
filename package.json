@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run lint:supabase-errors && tsc -b && vite build",
     "lint": "eslint .",
+    "lint:supabase-errors": "node scripts/check-supabase-errors.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",

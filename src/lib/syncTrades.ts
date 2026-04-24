@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import type { Trade, Account, AccountTransaction } from '../types/trade'
 import type { RiskRules } from '../store/useTradeStore'
+import { notifySyncError } from './pendingSync'
 
 // ---- Journal entries ----
 export interface JournalEntryDB {
@@ -12,7 +13,7 @@ export interface JournalEntryDB {
 
 export async function loadCloudJournal(userId: string): Promise<JournalEntryDB[] | null> {
   const { data, error } = await supabase.from('journal_entries').select('*').eq('user_id', userId).order('date', { ascending: false })
-  if (error) return null
+  if (error) { notifySyncError(error, 'loadCloudJournal'); return null }
   return data as JournalEntryDB[]
 }
 
@@ -31,6 +32,8 @@ export async function loadCloudData(userId: string): Promise<{ trades: Trade[]; 
     supabase.from('trades').select('*').eq('user_id', userId),
     supabase.from('user_accounts').select('*').eq('user_id', userId),
   ])
+  if (tradesRes.error) notifySyncError(tradesRes.error, 'loadCloudData.trades')
+  if (accountsRes.error) notifySyncError(accountsRes.error, 'loadCloudData.user_accounts')
   if (tradesRes.error || accountsRes.error) return null
   return {
     trades: (tradesRes.data ?? []) as Trade[],
@@ -81,7 +84,7 @@ export async function loadAccountTransactions(userId: string): Promise<AccountTr
     .from('account_transactions')
     .select('*')
     .eq('user_id', userId)
-  if (error) return null
+  if (error) { notifySyncError(error, 'loadAccountTransactions'); return null }
   return (data ?? []) as AccountTransaction[]
 }
 
@@ -106,6 +109,7 @@ export async function loadRiskRules(userId: string): Promise<RiskRules | null> {
     .select('risk_rules')
     .eq('user_id', userId)
     .maybeSingle()
+  if (error) notifySyncError(error, 'loadRiskRules')
   if (error || !data) return null
   return data.risk_rules as RiskRules
 }

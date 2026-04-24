@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { TradePlan } from '../types/plan'
+import { notifySyncError } from './pendingSync'
 
 // trade_plans 表的云端 CRUD
 // 遵循 v2.3 约定：
@@ -15,6 +16,7 @@ export async function loadCloudPlans(userId: string): Promise<TradePlan[] | null
     .order('updated_at', { ascending: false })
   if (error) {
     console.error('[syncPlans] loadCloudPlans failed', error)
+    notifySyncError(error, 'loadCloudPlans')
     return null
   }
   return (data ?? []) as TradePlan[]
