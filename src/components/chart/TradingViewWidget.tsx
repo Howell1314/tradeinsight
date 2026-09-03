@@ -29,15 +29,14 @@ function buildEmbedUrl(symbol: string, interval: string, theme: 'light' | 'dark'
   return `${EMBED_ORIGIN}/widgetembed/?${params.toString()}`;
 }
 
-type Reachability = 'checking' | 'ok' | 'blocked';
-
 export function TradingViewWidget({
   symbol = 'OKX:BTCUSDT',
   interval = '60',
   theme = 'dark',
   className,
 }: Props) {
-  const [reachability, setReachability] = useState<Reachability>('checking');
+  const [probeFailed, setProbeFailed] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   const src = useMemo(
@@ -46,24 +45,26 @@ export function TradingViewWidget({
   );
 
   // 跨域 iframe 加载失败时不会触发 onError，被重置时浏览器还会把自己的错误页
-  // 当成一次成功的 onLoad，所以 iframe 事件不足以判断可达性。改用一次 no-cors
-  // 探测：域名被墙或被解析到 127.0.0.1 时 fetch 会直接 reject。
+  // 当成一次成功的 onLoad，所以 iframe 事件不足以判断可达性。用一次 no-cors
+  // 探测补足：域名被墙或被解析到 127.0.0.1 时 fetch 会直接 reject。
+  //
+  // ⚠️ 探测只用来「叠加一条提示」，绝不用来决定 iframe 渲不渲染。
+  // 这条探测本身会因为跟图表无关的原因失败（最典型的：CSP 的 connect-src 漏放
+  // TradingView —— iframe 走 frame-src 是通的，探测却被拦），一旦让它掌握显示权，
+  // 就会把一个本来能用的图表藏起来。宁可多一条可关掉的误报，也不要少一个功能。
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
 
-    setReachability('checking');
+    setProbeFailed(false);
     fetch(`${EMBED_ORIGIN}/widgetembed/`, {
       mode: 'no-cors',
       cache: 'no-store',
       signal: controller.signal,
     })
-      .then(() => {
-        if (!cancelled) setReachability('ok');
-      })
       .catch(() => {
-        if (!cancelled) setReachability('blocked');
+        if (!cancelled) setProbeFailed(true);
       })
       .finally(() => clearTimeout(timer));
 
@@ -74,55 +75,14 @@ export function TradingViewWidget({
     };
   }, [attempt]);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
-
-  if (reachability === 'blocked') {
-    return (
-      <div className={className ?? 'w-full h-full'}>
-        <div className="flex h-full w-full items-center justify-center p-6">
-          <div className="max-w-md rounded-lg border border-amber-500/40 bg-amber-500/5 p-5 text-sm">
-            <p className="mb-2 font-medium text-amber-500">图表服务连接失败</p>
-            <p className="mb-3 text-muted-foreground">
-              浏览器无法连接到 TradingView（<code>{EMBED_ORIGIN}</code>）。
-              这是网络层问题，不是交易数据出了问题 —— 你的账户、交易记录和计划都不受影响。
-            </p>
-            <ul className="mb-4 list-disc space-y-1 pl-5 text-muted-foreground">
-              <li>确认代理已开启，且 <code>*.tradingview.com</code> 走代理</li>
-              <li>
-                检查代理规则或广告拦截是否把 TradingView 的域名屏蔽成了
-                <code> 127.0.0.1</code>
-              </li>
-            </ul>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={retry}
-                className="rounded-md border border-amber-500/50 px-3 py-1.5 font-medium text-amber-500 hover:bg-amber-500/10"
-              >
-                重试
-              </button>
-              <a
-                href={src}
-                target="_blank"
-                rel="noreferrer"
-                className="text-muted-foreground underline hover:text-foreground"
-              >
-                在新标签页打开
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const retry = useCallback(() => {
+    setDismissed(false);
+    setAttempt((n) => n + 1);
+  }, []);
 
   return (
     <div className={className ?? 'w-full h-full'}>
-      {reachability === 'checking' ? (
-        <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-          正在加载图表…
-        </div>
-      ) : (
+      <div className="relative h-full w-full">
         <iframe
           key={`${src}-${attempt}`}
           src={src}
@@ -131,7 +91,50 @@ export function TradingViewWidget({
           allow="clipboard-write"
           referrerPolicy="origin"
         />
-      )}
+
+        {probeFailed && !dismissed && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-3">
+            <div className="pointer-events-auto max-w-xl rounded-lg border border-amber-500/40 bg-neutral-900/95 p-4 text-sm shadow-lg">
+              <p className="mb-1 font-medium text-amber-500">图表可能无法加载</p>
+              <p className="mb-3 text-neutral-300">
+                连不上 TradingView（<code>{EMBED_ORIGIN}</code>）。如果下方图表其实
+                显示正常，忽略本提示即可。你的账户、交易记录和计划都不受影响。
+              </p>
+              <ul className="mb-3 list-disc space-y-1 pl-5 text-neutral-400">
+                <li>确认代理已开启，且 <code>*.tradingview.com</code> 走代理</li>
+                <li>
+                  检查代理规则或广告拦截是否把 TradingView 的域名屏蔽成了
+                  <code> 127.0.0.1</code>
+                </li>
+              </ul>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={retry}
+                  className="rounded-md border border-amber-500/50 px-3 py-1.5 font-medium text-amber-500 hover:bg-amber-500/10"
+                >
+                  重试
+                </button>
+                <a
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-neutral-400 underline hover:text-neutral-200"
+                >
+                  在新标签页打开
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDismissed(true)}
+                  className="ml-auto text-neutral-500 hover:text-neutral-300"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,10 @@ const CSP_DIRECTIVES: Record<string, string[]> = {
     'https://*.supabase.co',
     'wss://*.supabase.co',
     'https://api.binance.com',
+    // TradingView 在 frame-src 和 connect-src 里都要放行：iframe 本身走 frame-src，
+    // TradingViewWidget 的可达性探测用 fetch()，走的是 connect-src。只放前者会让
+    // 探测被 CSP 拦掉，从而误报「图表服务连接失败」。
+    'https://*.tradingview.com',
   ],
   'frame-src': ['https://*.tradingview.com', 'https://*.tradingview-widget.com'],
   'worker-src': ["'self'", 'blob:'],

@@ -7,13 +7,16 @@
 # 各来源的用途（改前先确认没有遗漏，CSP 拦截在生产是静默的白屏/功能失效）：
 #   supabase.co        —— 数据库 / Auth / Edge Functions(fetch-price) / Storage(头像与日志配图)
 #   api.binance.com    —— src/lib/priceApi.ts 的加密货币报价
-#   tradingview.com    —— K线图表页的 iframe 嵌入(s.tradingview.com/widgetembed)
+#   tradingview.com    —— K线图表页的 iframe 嵌入(s.tradingview.com/widgetembed)。
+#                         ⚠️ frame-src 和 connect-src 都要放：iframe 走 frame-src，
+#                         组件里那次可达性探测用的是 fetch()，走的是 connect-src。
+#                         只放 frame-src 会让探测被 CSP 拦掉，误报「图表服务连接失败」。
 #   tradingview-widget.com —— 兜底：嵌入页在部分线路上会跳到该域名
 #   'unsafe-inline' (style) —— 代码里有 855 处 React 内联 style={{}}，去掉整个 UI 会崩
 #   data: / blob:      —— 图标内联、上传前的本地预览、导出 CSV/Excel/JSON 的下载链接
 
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.binance.com; frame-src https://*.tradingview.com https://*.tradingview-widget.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.binance.com https://*.tradingview.com; frame-src https://*.tradingview.com https://*.tradingview-widget.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
