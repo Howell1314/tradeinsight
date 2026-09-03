@@ -1,0 +1,20 @@
+# Cloudflare Pages 响应头。Vite 会把 public/ 原样拷进 dist/，Pages 读取 dist/_headers。
+#
+# ⚠️ 这份 CSP 必须与 vite.config.ts 的 server.headers / preview.headers 保持一致。
+# 此前 CSP 只写在 vite.config.ts 的 server.headers 里，那只作用于开发服务器，
+# 生产环境实际裸奔 —— 别再让两边漂移。
+#
+# 各来源的用途（改前先确认没有遗漏，CSP 拦截在生产是静默的白屏/功能失效）：
+#   supabase.co        —— 数据库 / Auth / Edge Functions(fetch-price) / Storage(头像与日志配图)
+#   api.binance.com    —— src/lib/priceApi.ts 的加密货币报价
+#   tradingview.com    —— K线图表页的 iframe 嵌入(s.tradingview.com/widgetembed)
+#   tradingview-widget.com —— 兜底：嵌入页在部分线路上会跳到该域名
+#   'unsafe-inline' (style) —— 代码里有 855 处 React 内联 style={{}}，去掉整个 UI 会崩
+#   data: / blob:      —— 图标内联、上传前的本地预览、导出 CSV/Excel/JSON 的下载链接
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.binance.com; frame-src https://*.tradingview.com https://*.tradingview-widget.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
